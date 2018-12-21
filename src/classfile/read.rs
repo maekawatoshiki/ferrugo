@@ -1,4 +1,5 @@
 use super::constant;
+use super::constant::{Constant, ConstantType};
 use std::fs::File;
 use std::io::{BufReader, Read};
 
@@ -42,14 +43,66 @@ impl ClassFileReader {
         let constant_pool_count = self.read_u16()?;
         println!("constant_pool_count: {}", constant_pool_count);
 
-        // loop {
-        let tag = self.read_u8()?;
-        println!("tag: {:?}", constant::u8_to_constant_type(tag)?);
-        // }
+        for i in 0..5 {
+            let tag = self.read_u8()?;
+            let const_ty = constant::u8_to_constant_type(tag)?;
+            println!("tag: {:?}", const_ty);
+            println!("data: {:?}", self.read_constant(const_ty)?);
+        }
 
         Some(())
     }
+}
 
+// Constants
+
+impl ClassFileReader {
+    fn read_constant(&mut self, ty: ConstantType) -> Option<Constant> {
+        match ty {
+            ConstantType::Methodref => self.read_constant_methodref_info(),
+            ConstantType::Fieldref => self.read_constant_fieldref_info(),
+            ConstantType::InterfaceMethodref => self.read_constant_interface_methodref_info(),
+            ConstantType::String => self.read_constant_string(),
+            _ => None,
+        }
+    }
+
+    fn read_constant_methodref_info(&mut self) -> Option<Constant> {
+        let class_index = self.read_u16()?;
+        let name_and_type_index = self.read_u16()?;
+        Some(Constant::MethodrefInfo {
+            class_index,
+            name_and_type_index,
+        })
+    }
+
+    fn read_constant_fieldref_info(&mut self) -> Option<Constant> {
+        let class_index = self.read_u16()?;
+        let name_and_type_index = self.read_u16()?;
+        Some(Constant::FieldrefInfo {
+            class_index,
+            name_and_type_index,
+        })
+    }
+
+    fn read_constant_interface_methodref_info(&mut self) -> Option<Constant> {
+        let class_index = self.read_u16()?;
+        let name_and_type_index = self.read_u16()?;
+        Some(Constant::InterfaceMethodrefInfo {
+            class_index,
+            name_and_type_index,
+        })
+    }
+
+    fn read_constant_string(&mut self) -> Option<Constant> {
+        let string_index = self.read_u16()?;
+        Some(Constant::String { string_index })
+    }
+}
+
+// Utils
+
+impl ClassFileReader {
     fn read_u32(&mut self) -> Option<u32> {
         let mut buf = [0u8; 4];
         match self.reader.read(&mut buf) {

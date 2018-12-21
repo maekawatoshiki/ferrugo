@@ -56,3 +56,22 @@ pub fn u8_to_constant_type(val: u8) -> Option<ConstantType> {
         _ => None,
     }
 }
+
+#[derive(Clone, Debug)]
+pub enum Constant {
+    MethodrefInfo {
+        class_index: u16,
+        name_and_type_index: u16,
+    },
+    FieldrefInfo {
+        class_index: u16,
+        name_and_type_index: u16,
+    },
+    InterfaceMethodrefInfo {
+        class_index: u16,
+        name_and_type_index: u16,
+    },
+    String {
+        string_index: u16,
+    }
+}

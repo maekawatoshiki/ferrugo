@@ -22,8 +22,8 @@ fn main() {
         None => return,
     };
 
-    let mut reader = match read::ClassFileReader::new(filename) {
-        Some(reader) => reader,
+    let mut cf_reader = match read::ClassFileReader::new(filename) {
+        Some(cf_reader) => cf_reader,
         None => {
             eprintln!(
                 "{}: Couldn't open file '{}'",
@@ -34,5 +34,11 @@ fn main() {
         }
     };
 
-    reader.read();
+    if let None = cf_reader.read() {
+        eprintln!(
+            "{}: An error occurred while loading class file",
+            Colour::Red.bold().paint("error"),
+        );
+        return;
+    }
 }
