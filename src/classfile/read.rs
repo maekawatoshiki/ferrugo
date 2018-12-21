@@ -1,5 +1,8 @@
+use super::attribute::{Attribute, AttributeInfo, Exception};
 use super::constant;
 use super::constant::{Constant, ConstantType};
+use super::field::FieldInfo;
+use super::method::MethodInfo;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::mem::transmute;
@@ -44,23 +47,70 @@ impl ClassFileReader {
         let constant_pool_count = self.read_u16()?;
         println!("constant_pool_count: {}", constant_pool_count);
 
+        let mut constant_pool = vec![];
         let mut idx = 0;
         while idx < constant_pool_count - 1 {
             let tag = self.read_u8()?;
             // println!("tag: {:?}", tag);
             let const_ty = constant::u8_to_constant_type(tag)?;
-            println!("tag: {:?}", const_ty);
-            println!("-> {:?}", self.read_constant(&const_ty)?);
+            let constant = self.read_constant(&const_ty)?;
+            println!(
+                "tag({}): {:?}: {:?}",
+                constant_pool.len(),
+                const_ty,
+                constant
+            );
+
+            constant_pool.push(constant);
 
             // https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-4.html#jvms-4.4.5
             // > If a CONSTANT_Long_info or CONSTANT_Double_info structure is the item in the
             // > constant_pool table at index n, then the next usable item in the pool is located at
             // > index n+2. The constant_pool index n+1 must be valid but is considered unusable.
             match const_ty {
-                ConstantType::Double | ConstantType::Long => idx += 2,
+                ConstantType::Double | ConstantType::Long => {
+                    constant_pool.push(Constant::None);
+                    idx += 2;
+                }
                 _ => idx += 1,
             }
         }
+
+        let access_flags = self.read_u16()?;
+        println!("access_flags: {}", access_flags);
+
+        let this_class = self.read_u16()?;
+        println!("this_class: {}", this_class);
+
+        let super_class = self.read_u16()?;
+        println!("super_class: {}", super_class);
+
+        let interfaces_count = self.read_u16()?;
+        println!("interfaces_count: {}", interfaces_count);
+
+        let mut interfaces = vec![];
+        for _ in 0..interfaces_count {
+            interfaces.push(self.read_constant_class_info()?);
+        }
+        println!("interfaces: {:?}", interfaces);
+
+        let fields_count = self.read_u16()?;
+        println!("fields_count: {}", fields_count);
+
+        let mut fields = vec![];
+        for _ in 0..fields_count {
+            fields.push(self.read_field_info(&constant_pool)?);
+        }
+        println!("fields: {:?}", fields);
+
+        let methods_count = self.read_u16()?;
+        println!("methods_count: {}", methods_count);
+
+        let mut methods = vec![];
+        for _ in 0..methods_count {
+            methods.push(self.read_method_info(&constant_pool)?);
+        }
+        println!("methods: {:?}", methods);
 
         Some(())
     }
@@ -192,6 +242,116 @@ impl ClassFileReader {
         Some(Constant::InvokeDynamicInfo {
             bootstrap_method_attr_index,
             name_and_type_index,
+        })
+    }
+}
+
+// Fields
+
+impl ClassFileReader {
+    fn read_field_info(&mut self, constant_pool: &Vec<Constant>) -> Option<FieldInfo> {
+        let access_flags = self.read_u16()?;
+        let name_index = self.read_u16()?;
+        let descriptor_index = self.read_u16()?;
+        let attributes_count = self.read_u16()?;
+        let mut attributes = vec![];
+        for _ in 0..attributes_count {
+            attributes.push(self.read_attribute_info(constant_pool)?)
+        }
+        Some(FieldInfo {
+            access_flags,
+            name_index,
+            descriptor_index,
+            attributes_count,
+            attributes,
+        })
+    }
+}
+
+// Methods
+
+impl ClassFileReader {
+    fn read_method_info(&mut self, constant_pool: &Vec<Constant>) -> Option<MethodInfo> {
+        let access_flags = self.read_u16()?;
+        let name_index = self.read_u16()?;
+        let descriptor_index = self.read_u16()?;
+        let attributes_count = self.read_u16()?;
+        let mut attributes = vec![];
+        for _ in 0..attributes_count {
+            attributes.push(self.read_attribute_info(constant_pool)?)
+        }
+        Some(MethodInfo {
+            access_flags,
+            name_index,
+            descriptor_index,
+            attributes_count,
+            attributes,
+        })
+    }
+}
+
+// Attributes
+
+impl ClassFileReader {
+    fn read_attribute_info(&mut self, constant_pool: &Vec<Constant>) -> Option<AttributeInfo> {
+        let attribute_name_index = self.read_u16()?;
+        let attribute_length = self.read_u32()?;
+        let name = constant_pool[attribute_name_index as usize].get_utf8()?;
+        let info = match name.as_str() {
+            "Code" => self.read_code_attribute(constant_pool)?,
+            e => unimplemented!("{}", e),
+        };
+        Some(AttributeInfo {
+            attribute_name_index,
+            attribute_length,
+            info,
+        })
+    }
+
+    fn read_code_attribute(&mut self, constant_pool: &Vec<Constant>) -> Option<Attribute> {
+        let attribute_name_index = self.read_u16()?;
+        let attribute_length = self.read_u16()?;
+        let max_stack = self.read_u16()?;
+        let max_locals = self.read_u16()?;
+        let code_length = self.read_u32()?;
+        let mut code = vec![];
+        for _ in 0..code_length {
+            code.push(self.read_u8()?);
+        }
+        let exception_table_length = self.read_u16()?;
+        let mut exception_table = vec![];
+        for _ in 0..exception_table_length {
+            exception_table.push(self.read_exception()?);
+        }
+        let attributes_count = self.read_u16()?;
+        let mut attributes = vec![];
+        for _ in 0..attributes_count {
+            attributes.push(self.read_attribute_info(constant_pool)?)
+        }
+        Some(Attribute::Code {
+            attribute_name_index,
+            attribute_length,
+            max_stack,
+            max_locals,
+            code_length,
+            code,
+            exception_table_length,
+            exception_table,
+            attributes_count,
+            attributes,
+        })
+    }
+
+    fn read_exception(&mut self) -> Option<Exception> {
+        let start_pc = self.read_u16()?;
+        let end_pc = self.read_u16()?;
+        let handler_pc = self.read_u16()?;
+        let catch_type = self.read_u16()?;
+        Some(Exception {
+            start_pc,
+            end_pc,
+            handler_pc,
+            catch_type,
         })
     }
 }

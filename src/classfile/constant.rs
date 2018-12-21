@@ -107,4 +107,14 @@ pub enum Constant {
         bootstrap_method_attr_index: u16,
         name_and_type_index: u16,
     },
+    None,
+}
+
+impl Constant {
+    pub fn get_utf8(&self) -> Option<&String> {
+        match self {
+            Constant::Utf8 { s } => Some(s),
+            _ => None,
+        }
+    }
 }
