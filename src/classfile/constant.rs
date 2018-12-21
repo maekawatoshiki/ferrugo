@@ -73,5 +73,38 @@ pub enum Constant {
     },
     String {
         string_index: u16,
-    }
+    },
+    ClassInfo {
+        name_index: u16,
+    },
+    Utf8 {
+        s: String,
+    },
+    NameAndTypeInfo {
+        name_index: u16,
+        descriptor_index: u16,
+    },
+    IntegerInfo {
+        i: i32,
+    },
+    FloatInfo {
+        f: f32,
+    },
+    LongInfo {
+        i: i64,
+    },
+    DoubleInfo {
+        f: f64,
+    },
+    MethodHandleInfo {
+        reference_kind: u8,
+        reference_index: u16,
+    },
+    MethodTypeInfo {
+        descriptor_index: u16,
+    },
+    InvokeDynamicInfo {
+        bootstrap_method_attr_index: u16,
+        name_and_type_index: u16,
+    },
 }
