@@ -1,4 +1,4 @@
-use super::attribute::{Attribute, AttributeInfo, Exception};
+use super::attribute::{Attribute, AttributeInfo, Exception, LineNumber};
 use super::constant;
 use super::constant::{Constant, ConstantType};
 use super::field::FieldInfo;
@@ -47,7 +47,7 @@ impl ClassFileReader {
         let constant_pool_count = self.read_u16()?;
         println!("constant_pool_count: {}", constant_pool_count);
 
-        let mut constant_pool = vec![];
+        let mut constant_pool = vec![Constant::None];
         let mut idx = 0;
         while idx < constant_pool_count - 1 {
             let tag = self.read_u8()?;
@@ -299,6 +299,7 @@ impl ClassFileReader {
         let name = constant_pool[attribute_name_index as usize].get_utf8()?;
         let info = match name.as_str() {
             "Code" => self.read_code_attribute(constant_pool)?,
+            "LineNumberTable" => self.read_line_number_table_attribute()?,
             e => unimplemented!("{}", e),
         };
         Some(AttributeInfo {
@@ -309,8 +310,6 @@ impl ClassFileReader {
     }
 
     fn read_code_attribute(&mut self, constant_pool: &Vec<Constant>) -> Option<Attribute> {
-        let attribute_name_index = self.read_u16()?;
-        let attribute_length = self.read_u16()?;
         let max_stack = self.read_u16()?;
         let max_locals = self.read_u16()?;
         let code_length = self.read_u32()?;
@@ -329,8 +328,6 @@ impl ClassFileReader {
             attributes.push(self.read_attribute_info(constant_pool)?)
         }
         Some(Attribute::Code {
-            attribute_name_index,
-            attribute_length,
             max_stack,
             max_locals,
             code_length,
@@ -339,6 +336,27 @@ impl ClassFileReader {
             exception_table,
             attributes_count,
             attributes,
+        })
+    }
+
+    fn read_line_number_table_attribute(&mut self) -> Option<Attribute> {
+        let line_number_table_length = self.read_u16()?;
+        let mut line_number_table = vec![];
+        for _ in 0..line_number_table_length {
+            line_number_table.push(self.read_line_number()?)
+        }
+        Some(Attribute::LineNumberTable {
+            line_number_table_length,
+            line_number_table,
+        })
+    }
+
+    fn read_line_number(&mut self) -> Option<LineNumber> {
+        let start_pc = self.read_u16()?;
+        let line_number = self.read_u16()?;
+        Some(LineNumber {
+            start_pc,
+            line_number,
         })
     }
 
