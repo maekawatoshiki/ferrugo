@@ -112,6 +112,15 @@ impl ClassFileReader {
         }
         println!("methods: {:?}", methods);
 
+        let attributes_count = self.read_u16()?;
+        println!("attributes_count: {}", attributes_count);
+
+        let mut attributes = vec![];
+        for _ in 0..attributes_count {
+            attributes.push(self.read_attribute_info(&constant_pool)?)
+        }
+        println!("attributes: {:?}", attributes);
+
         Some(())
     }
 }
@@ -300,6 +309,7 @@ impl ClassFileReader {
         let info = match name.as_str() {
             "Code" => self.read_code_attribute(constant_pool)?,
             "LineNumberTable" => self.read_line_number_table_attribute()?,
+            "SourceFile" => self.read_source_file_attribute()?,
             e => unimplemented!("{}", e),
         };
         Some(AttributeInfo {
@@ -349,6 +359,11 @@ impl ClassFileReader {
             line_number_table_length,
             line_number_table,
         })
+    }
+
+    fn read_source_file_attribute(&mut self) -> Option<Attribute> {
+        let sourcefile_index = self.read_u16()?;
+        Some(Attribute::SourceFile { sourcefile_index })
     }
 
     fn read_line_number(&mut self) -> Option<LineNumber> {

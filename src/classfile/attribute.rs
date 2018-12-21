@@ -21,6 +21,9 @@ pub enum Attribute {
         line_number_table_length: u16,
         line_number_table: Vec<LineNumber>,
     },
+    SourceFile {
+        sourcefile_index: u16,
+    },
 }
 
 #[derive(Debug, Clone)]
