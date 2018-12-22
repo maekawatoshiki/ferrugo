@@ -95,14 +95,46 @@ impl VM {
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
+                Inst::iinc => {
+                    let mut frame = frame!();
+                    let index = code[frame.pc + 1] as usize;
+                    let const_ = code[frame.pc + 2];
+                    match self.stack[self.bp + index] {
+                        Variable::Char(ref mut n) => *n += const_ as i8,
+                        Variable::Short(ref mut n) => *n += const_ as i16,
+                        Variable::Int(ref mut n) => *n += const_ as i32,
+                        Variable::Float(_) => panic!("must be int"),
+                    }
+                    frame.pc += 3;
+                }
                 Inst::invokestatic => {
                     self.run_invoke_static();
                     frame!().pc += 3;
                 }
                 Inst::pop => {
                     let mut frame = frame!();
-                    frame.sp -= 1;
+                    // frame.sp -= 1;
                     frame.pc += 1;
+                }
+                Inst::goto => {
+                    let mut frame = frame!();
+                    let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
+                    frame.pc = (frame.pc as isize + branch as isize) as usize;
+                    println!("branch {}", frame.pc);
+                }
+                Inst::if_icmpgt => {
+                    let mut frame = frame!();
+                    let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
+                    let val2 = self.stack[self.bp + frame.sp - 1].get_int();
+                    let val1 = self.stack[self.bp + frame.sp - 2].get_int();
+                    println!("{} {}", val1, val2);
+                    if val1 > val2 {
+                        frame.pc = (frame.pc as isize + branch as isize) as usize;
+                        println!("branch1 {}", frame.pc);
+                    } else {
+                        frame.pc += 3;
+                    }
+                    frame.sp -= 2;
                 }
                 Inst::ireturn => {
                     self.stack[self.bp] =
@@ -276,8 +308,11 @@ mod Inst {
     pub const iload_3:      u8 = 29;
     pub const bipush:       u8 = 16;
     pub const iadd:         u8 = 96;
+    pub const iinc:         u8 = 132;
+    pub const if_icmpgt:    u8 = 163;
+    pub const goto:         u8 = 167;
     pub const ireturn:      u8 = 172;
     pub const return_:      u8 = 177;
-    pub const pop: u8 = 87;
+    pub const pop:          u8 = 87;
     pub const invokestatic: u8 = 184;
 }
