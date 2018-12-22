@@ -1,5 +1,5 @@
 extern crate ferrugo;
-use ferrugo::classfile::read;
+use ferrugo::class::classfile::read;
 
 extern crate clap;
 use clap::{App, Arg};
