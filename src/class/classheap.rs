@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct ClassHeap {
-    class_map: HashMap<String, GcType<Class>>,
+    pub class_map: HashMap<String, GcType<Class>>,
 }
 
 impl ClassHeap {
@@ -14,7 +14,7 @@ impl ClassHeap {
         }
     }
 
-    pub fn load_class(&mut self, class_name: String, class: GcType<Class>) -> Option<()> {
+    pub fn load_class(&mut self, class_name: &str, class: GcType<Class>) -> Option<()> {
         let class = unsafe { &mut *class };
         class.load_classfile(class_name);
         self.class_map.insert("".to_string(), class);

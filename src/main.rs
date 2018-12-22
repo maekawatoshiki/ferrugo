@@ -1,5 +1,9 @@
 extern crate ferrugo;
-use ferrugo::class::classfile::read;
+use ferrugo::class::class::Class;
+use ferrugo::class::classfile::attribute::Attribute;
+use ferrugo::class::classheap;
+use ferrugo::exec::frame::Frame;
+use ferrugo::gc::gc;
 
 extern crate clap;
 use clap::{App, Arg};
@@ -22,23 +26,39 @@ fn main() {
         None => return,
     };
 
-    let mut cf_reader = match read::ClassFileReader::new(filename) {
-        Some(cf_reader) => cf_reader,
-        None => {
-            eprintln!(
-                "{}: Couldn't open file '{}'",
-                Colour::Red.bold().paint("error"),
-                filename
-            );
-            return;
-        }
-    };
+    let classheap_ptr = gc::new(classheap::ClassHeap::new());
+    let mut classheap = unsafe { &mut *classheap_ptr };
 
-    if let None = cf_reader.read() {
+    let class1_ptr = gc::new(Class::new());
+    let _class2_ptr = gc::new(Class::new());
+
+    if let None = classheap.load_class(filename, class1_ptr) {
         eprintln!(
             "{}: An error occurred while loading class file",
             Colour::Red.bold().paint("error"),
         );
         return;
     }
+    unsafe { (*class1_ptr).classheap = Some(classheap_ptr) };
+    // classheap
+    //     .load_class("java/lang/Object.class", class2_ptr)
+    //     .unwrap();
+
+    println!("{:?}", classheap);
+
+    let mut frame_stack = vec![Frame::new(), Frame::new()];
+
+    let (class, method) = unsafe { &*class1_ptr }.get_method("Entry", "()I").unwrap();
+    frame_stack[0].class = Some(class);
+    frame_stack[0].method_info = method;
+    frame_stack[0].init_stack();
+    frame_stack[0].sp = if let Some(Attribute::Code { max_locals, .. }) =
+        frame_stack[0].method_info.get_code_attribute()
+    {
+        *max_locals
+    } else {
+        panic!()
+    };
+
+    // println!("{:?}", unsafe { &(*class) });
 }
