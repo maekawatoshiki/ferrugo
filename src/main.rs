@@ -44,25 +44,23 @@ fn main() {
     //     .load_class("java/lang/Object.class", class2_ptr)
     //     .unwrap();
 
-    // println!("{:?}", classheap);
-
     let mut frame_stack = vec![Frame::new(), Frame::new()];
 
-    let (class, method) = unsafe { &*class1_ptr }.get_method("Entry", "()I").unwrap();
+    let (class, method) = unsafe { &*class1_ptr }
+        .get_method("main", "([Ljava/lang/String;)V")
+        .unwrap();
 
-    // println!("{:?}", method);
-    frame_stack[0].class = Some(class);
-    frame_stack[0].method_info = method;
-    frame_stack[0].init_stack();
-    frame_stack[0].sp = if let Some(Attribute::Code { max_locals, .. }) =
-        frame_stack[0].method_info.get_code_attribute()
+    let mut vm = VM::new();
+    vm.classheap = Some(classheap_ptr);
+    vm.frame_stack[0].class = Some(class);
+    vm.frame_stack[0].method_info = method;
+    vm.frame_stack[0].sp = if let Some(Attribute::Code { max_locals, .. }) =
+        vm.frame_stack[0].method_info.get_code_attribute()
     {
-        *max_locals
+        *max_locals as usize
     } else {
         panic!()
     };
-
-    let vm = VM::new();
-    vm.run(&mut frame_stack);
-    println!("stack top: {:?}", frame_stack[0].stack[0]);
+    vm.run();
+    println!("stack top: {:?}", vm.stack);
 }

@@ -6,9 +6,8 @@ use super::super::gc::gc::GcType;
 pub struct Frame {
     pub class: Option<GcType<Class>>,
     pub method_info: MethodInfo,
-    pub pc: u32,
-    pub sp: u16,
-    pub stack: Vec<Variable>,
+    pub pc: usize,
+    pub sp: usize,
 }
 
 impl Frame {
@@ -18,13 +17,6 @@ impl Frame {
             method_info: MethodInfo::new(),
             pc: 0,
             sp: 0,
-            stack: vec![],
-        }
-    }
-
-    pub fn init_stack(&mut self) {
-        for _ in 0..100 {
-            self.stack.push(Variable::Int(1));
         }
     }
 }
