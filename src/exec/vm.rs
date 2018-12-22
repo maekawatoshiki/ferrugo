@@ -80,6 +80,26 @@ impl VM {
                     frame.sp += 1;
                     frame.pc += 1;
                 }
+                Inst::sipush => {
+                    let mut frame = frame!();
+                    let val = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
+                    self.stack[self.bp + frame.sp] = Variable::Short(val);
+                    frame.sp += 1;
+                    frame.pc += 3;
+                }
+                Inst::ldc => {
+                    let mut frame = frame!();
+                    let index = code[frame.pc + 1] as usize;
+                    let val = match unsafe { &*frame.class.unwrap() }.classfile.constant_pool[index]
+                    {
+                        Constant::IntegerInfo { i } => Variable::Int(i),
+                        Constant::FloatInfo { f } => Variable::Float(f),
+                        _ => unimplemented!(),
+                    };
+                    self.stack[self.bp + frame.sp] = val;
+                    frame.sp += 1;
+                    frame.pc += 2;
+                }
                 Inst::bipush => {
                     let mut frame = frame!();
                     self.stack[self.bp + frame.sp] = Variable::Char(code[frame.pc + 1] as i8);
@@ -120,17 +140,14 @@ impl VM {
                     let mut frame = frame!();
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                     frame.pc = (frame.pc as isize + branch as isize) as usize;
-                    println!("branch {}", frame.pc);
                 }
                 Inst::if_icmpgt => {
                     let mut frame = frame!();
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
-                    let val2 = self.stack[self.bp + frame.sp - 1].get_int();
-                    let val1 = self.stack[self.bp + frame.sp - 2].get_int();
-                    println!("{} {}", val1, val2);
-                    if val1 > val2 {
+                    let val1 = self.stack[self.bp + frame.sp - 1].get_int();
+                    let val2 = self.stack[self.bp + frame.sp - 2].get_int();
+                    if val1 < val2 {
                         frame.pc = (frame.pc as isize + branch as isize) as usize;
-                        println!("branch1 {}", frame.pc);
                     } else {
                         frame.pc += 3;
                     }
@@ -298,6 +315,8 @@ mod Inst {
     pub const iconst_3:     u8 = 6;
     pub const iconst_4:     u8 = 7;
     pub const iconst_5:     u8 = 8;
+    pub const sipush:       u8 = 17;
+    pub const ldc:          u8 = 18;
     pub const istore_0:     u8 = 59;
     pub const istore_1:     u8 = 60;
     pub const istore_2:     u8 = 61;

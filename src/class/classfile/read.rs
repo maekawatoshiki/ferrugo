@@ -114,7 +114,7 @@ impl ClassFileReader {
         for _ in 0..methods_count {
             methods.push(self.read_method_info(&constant_pool)?);
         }
-        println!("methods: {:?}", methods);
+        // println!("methods: {:?}", methods);
 
         let attributes_count = self.read_u16()?;
         println!("attributes_count: {}", attributes_count);
