@@ -2,7 +2,7 @@ extern crate ferrugo;
 use ferrugo::class::class::Class;
 use ferrugo::class::classfile::attribute::Attribute;
 use ferrugo::class::classheap;
-use ferrugo::exec::{frame::Frame, vm::VM};
+use ferrugo::exec::vm::VM;
 use ferrugo::gc::gc;
 
 extern crate clap;
@@ -43,8 +43,6 @@ fn main() {
     // classheap
     //     .load_class("java/lang/Object.class", class2_ptr)
     //     .unwrap();
-
-    let mut frame_stack = vec![Frame::new(), Frame::new()];
 
     let (class, method) = unsafe { &*class1_ptr }
         .get_method("main", "([Ljava/lang/String;)V")

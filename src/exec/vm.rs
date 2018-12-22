@@ -1,6 +1,6 @@
 use super::super::class::classfile::attribute::Attribute;
 use super::super::class::classfile::constant::Constant;
-use super::super::class::classfile::{method, method::MethodInfo};
+use super::super::class::classfile::method::MethodInfo;
 use super::super::class::classheap::ClassHeap;
 use super::super::gc::gc::GcType;
 use super::frame::{Frame, Variable};
@@ -105,9 +105,8 @@ impl VM {
                     frame.pc += 1;
                 }
                 Inst::ireturn => {
-                    let mut frame = &mut self.frame_stack.last_mut().unwrap();
                     self.stack[self.bp] =
-                        Variable::Int(self.stack[self.bp + frame.sp - 1].get_int());
+                        Variable::Int(self.stack[self.bp + frame!().sp - 1].get_int());
                     return Inst::ireturn;
                 }
                 Inst::return_ => {

@@ -24,6 +24,10 @@ pub enum Attribute {
     SourceFile {
         sourcefile_index: u16,
     },
+    StackMapTable {
+        number_of_entries: u16,
+        entries: Vec<StackMapFrame>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -38,4 +42,32 @@ pub struct Exception {
 pub struct LineNumber {
     pub start_pc: u16,
     pub line_number: u16,
+}
+
+#[derive(Debug, Clone)]
+pub struct StackMapFrame {
+    pub frame_type: u8,
+    pub body: StackMapFrameBody,
+}
+
+#[derive(Debug, Clone)]
+pub enum StackMapFrameBody {
+    SameFrame,
+    AppendFrame {
+        offset_delta: u16,
+        locals: Vec<VerificationTypeInfo>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum VerificationTypeInfo {
+    Top,
+    Integer,
+    Float,
+    Long,
+    Double,
+    Null,
+    UninitializedThis,
+    Object,
+    Uninitialized,
 }

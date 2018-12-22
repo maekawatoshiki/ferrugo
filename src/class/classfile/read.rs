@@ -1,4 +1,7 @@
-use super::attribute::{Attribute, AttributeInfo, Exception, LineNumber};
+use super::attribute::{
+    Attribute, AttributeInfo, Exception, LineNumber, StackMapFrame, StackMapFrameBody,
+    VerificationTypeInfo,
+};
 use super::classfile::ClassFile;
 use super::constant;
 use super::constant::{Constant, ConstantType};
@@ -328,6 +331,7 @@ impl ClassFileReader {
             "Code" => self.read_code_attribute(constant_pool)?,
             "LineNumberTable" => self.read_line_number_table_attribute()?,
             "SourceFile" => self.read_source_file_attribute()?,
+            "StackMapTable" => self.read_stack_map_table_attribute()?,
             e => unimplemented!("{}", e),
         };
         Some(AttributeInfo {
@@ -382,6 +386,43 @@ impl ClassFileReader {
     fn read_source_file_attribute(&mut self) -> Option<Attribute> {
         let sourcefile_index = self.read_u16()?;
         Some(Attribute::SourceFile { sourcefile_index })
+    }
+
+    fn read_stack_map_table_attribute(&mut self) -> Option<Attribute> {
+        let number_of_entries = self.read_u16()?;
+        let mut entries = vec![];
+        for _ in 0..number_of_entries {
+            entries.push(self.read_stack_map_frame()?);
+        }
+        Some(Attribute::StackMapTable {
+            number_of_entries,
+            entries,
+        })
+    }
+
+    fn read_stack_map_frame(&mut self) -> Option<StackMapFrame> {
+        let frame_type = self.read_u8()?;
+        let body = match frame_type {
+            0...63 => StackMapFrameBody::SameFrame,
+            252...254 => {
+                let offset_delta = self.read_u16()?;
+                let mut locals = vec![];
+                for _ in 0..(frame_type - 251) {
+                    let tag = self.read_u8()?;
+                    locals.push(match tag {
+                        /* int */ 1 => VerificationTypeInfo::Integer,
+                        _ => unimplemented!(),
+                    });
+                }
+                StackMapFrameBody::AppendFrame {
+                    offset_delta,
+                    locals,
+                }
+            }
+            // TODO: Implement all frame types
+            _ => unimplemented!(),
+        };
+        Some(StackMapFrame { frame_type, body })
     }
 
     fn read_line_number(&mut self) -> Option<LineNumber> {

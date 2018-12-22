@@ -1,4 +1,4 @@
-use super::super::gc::{gc, gc::GcType};
+use super::super::gc::gc::GcType;
 use super::class::Class;
 use std::collections::HashMap;
 
