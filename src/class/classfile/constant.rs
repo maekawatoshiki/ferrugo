@@ -117,4 +117,11 @@ impl Constant {
             _ => None,
         }
     }
+
+    pub fn get_class_name_index(&self) -> Option<usize> {
+        match self {
+            Constant::ClassInfo { name_index } => Some(*name_index as usize),
+            _ => None,
+        }
+    }
 }

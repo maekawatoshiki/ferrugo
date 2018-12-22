@@ -22,3 +22,26 @@ pub struct ClassFile {
     pub attributes_count: u16,
     pub attributes: Vec<AttributeInfo>,
 }
+
+impl ClassFile {
+    pub fn new() -> Self {
+        ClassFile {
+            magic: 0,
+            minor_version: 0,
+            major_version: 0,
+            constant_pool_count: 0,
+            constant_pool: vec![],
+            access_flags: 0,
+            this_class: 0,
+            super_class: 0,
+            interfaces_count: 0,
+            interfaces: vec![],
+            fields_count: 0,
+            fields: vec![],
+            methods_count: 0,
+            methods: vec![],
+            attributes_count: 0,
+            attributes: vec![],
+        }
+    }
+}
