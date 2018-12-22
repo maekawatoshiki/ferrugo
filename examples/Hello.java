@@ -1,5 +1,7 @@
 class Hello {
-  public static void main(String[] args) {
-    System.out.println("Hello World");
+  public int Entry() {
+    int a = 1;
+    int b = 2;
+    return a + b;
   }
 }

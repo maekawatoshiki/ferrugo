@@ -2,7 +2,7 @@ extern crate ferrugo;
 use ferrugo::class::class::Class;
 use ferrugo::class::classfile::attribute::Attribute;
 use ferrugo::class::classheap;
-use ferrugo::exec::frame::Frame;
+use ferrugo::exec::{frame::Frame, vm::VM};
 use ferrugo::gc::gc;
 
 extern crate clap;
@@ -27,7 +27,7 @@ fn main() {
     };
 
     let classheap_ptr = gc::new(classheap::ClassHeap::new());
-    let mut classheap = unsafe { &mut *classheap_ptr };
+    let classheap = unsafe { &mut *classheap_ptr };
 
     let class1_ptr = gc::new(Class::new());
     let _class2_ptr = gc::new(Class::new());
@@ -44,11 +44,13 @@ fn main() {
     //     .load_class("java/lang/Object.class", class2_ptr)
     //     .unwrap();
 
-    println!("{:?}", classheap);
+    // println!("{:?}", classheap);
 
     let mut frame_stack = vec![Frame::new(), Frame::new()];
 
     let (class, method) = unsafe { &*class1_ptr }.get_method("Entry", "()I").unwrap();
+
+    // println!("{:?}", method);
     frame_stack[0].class = Some(class);
     frame_stack[0].method_info = method;
     frame_stack[0].init_stack();
@@ -60,5 +62,7 @@ fn main() {
         panic!()
     };
 
-    // println!("{:?}", unsafe { &(*class) });
+    let vm = VM::new();
+    vm.run(&mut frame_stack);
+    println!("stack top: {:?}", frame_stack[0].stack[0]);
 }

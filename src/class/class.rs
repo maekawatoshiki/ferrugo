@@ -47,7 +47,7 @@ impl Class {
             .unwrap();
 
         loop {
-            let mut cur_class = unsafe { &mut *cur_class_ptr };
+            let cur_class = unsafe { &mut *cur_class_ptr };
 
             for i in 0..cur_class.classfile.methods_count as usize {
                 let name = cur_class.classfile.constant_pool
@@ -78,10 +78,7 @@ impl Class {
 
     pub fn get_super_class(&self) -> Option<GcType<Class>> {
         let name = self.get_super_class_name()?;
-        if let Some(x) = unsafe { &(*self.classheap.unwrap()) }
-            .class_map
-            .get(self.get_name().unwrap())
-        {
+        if let Some(x) = unsafe { &(*self.classheap.unwrap()) }.class_map.get(name) {
             Some(*x)
         } else {
             None

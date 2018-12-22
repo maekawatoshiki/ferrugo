@@ -1,5 +1,5 @@
 use super::super::gc::{gc, gc::GcType};
-use super::{class::Class, classfile::read::ClassFileReader};
+use super::class::Class;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]

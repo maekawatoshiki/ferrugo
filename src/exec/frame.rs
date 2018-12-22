@@ -31,8 +31,19 @@ impl Frame {
 
 #[derive(Debug, Clone)]
 pub enum Variable {
-    Char(u8),
-    Short(u16),
-    Int(u32),
+    Char(i8),
+    Short(i16),
+    Int(i32),
     Float(f32),
+}
+
+impl Variable {
+    pub fn get_int(&self) -> i32 {
+        match self {
+            Variable::Char(n) => *n as i32,
+            Variable::Short(n) => *n as i32,
+            Variable::Int(n) => *n,
+            Variable::Float(_) => panic!("what?"),
+        }
+    }
 }
