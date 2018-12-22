@@ -1,4 +1,5 @@
 use super::attribute::{Attribute, AttributeInfo, Exception, LineNumber};
+use super::classfile::ClassFile;
 use super::constant;
 use super::constant::{Constant, ConstantType};
 use super::field::FieldInfo;
@@ -32,7 +33,7 @@ impl ClassFileReader {
         })
     }
 
-    pub fn read(&mut self) -> Option<()> {
+    pub fn read(&mut self) -> Option<ClassFile> {
         let magic = self.read_u32()?;
         try_eq!(magic == 0xCAFEBABE);
         println!("cafebabe!");
@@ -121,7 +122,24 @@ impl ClassFileReader {
         }
         println!("attributes: {:?}", attributes);
 
-        Some(())
+        Some(ClassFile {
+            magic: 0xCAFEBABE,
+            minor_version,
+            major_version,
+            constant_pool_count,
+            constant_pool,
+            access_flags,
+            this_class,
+            super_class,
+            interfaces_count,
+            interfaces,
+            fields_count,
+            fields,
+            methods_count,
+            methods,
+            attributes_count,
+            attributes,
+        })
     }
 }
 
