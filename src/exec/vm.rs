@@ -45,6 +45,12 @@ impl VM {
             }};
         }
 
+        if frame!().method_info.access_flags & 0x0100 > 0 {
+            // ACC_NATIVE
+            self.run_native_method();
+            return 0;
+        }
+
         let code =
             if let Some(Attribute::Code { code, .. }) = frame!().method_info.get_code_attribute() {
                 code.clone()
@@ -103,14 +109,14 @@ impl VM {
                     frame.sp += 1;
                     frame.pc += 2;
                 }
-                Inst::aload_0 => {
+                Inst::aload_0 | Inst::aload_1 | Inst::aload_2 | Inst::aload_3 => {
                     let mut frame = frame!();
                     self.stack[self.bp + frame.sp] =
                         self.stack[self.bp + cur_code as usize - Inst::aload_0 as usize].clone();
                     frame.sp += 1;
                     frame.pc += 1;
                 }
-                Inst::astore_0 => {
+                Inst::astore_0 | Inst::astore_1 | Inst::astore_2 | Inst::astore_3 => {
                     let mut frame = frame!();
                     self.stack[self.bp + cur_code as usize - Inst::astore_0 as usize] =
                         self.stack[self.bp + frame.sp - 1].clone();
@@ -128,6 +134,15 @@ impl VM {
                     self.stack[self.bp + frame.sp - 2] = Variable::Int(
                         self.stack[self.bp + frame.sp - 2].get_int()
                             + self.stack[self.bp + frame.sp - 1].get_int(),
+                    );
+                    frame.sp -= 1;
+                    frame.pc += 1;
+                }
+                Inst::isub => {
+                    let mut frame = frame!();
+                    self.stack[self.bp + frame.sp - 2] = Variable::Int(
+                        self.stack[self.bp + frame.sp - 2].get_int()
+                            - self.stack[self.bp + frame.sp - 1].get_int(),
                     );
                     frame.sp -= 1;
                     frame.pc += 1;
@@ -158,7 +173,7 @@ impl VM {
                 }
                 Inst::pop => {
                     let mut frame = frame!();
-                    // frame.sp -= 1;
+                    frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::dup => {
@@ -172,6 +187,18 @@ impl VM {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                     frame.pc = (frame.pc as isize + branch as isize) as usize;
                 }
+                Inst::if_icmpge => {
+                    let mut frame = frame!();
+                    let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
+                    let val1 = self.stack[self.bp + frame.sp - 1].get_int();
+                    let val2 = self.stack[self.bp + frame.sp - 2].get_int();
+                    if val1 <= val2 {
+                        frame.pc = (frame.pc as isize + branch as isize) as usize;
+                    } else {
+                        frame.pc += 3;
+                    }
+                    frame.sp -= 2;
+                }
                 Inst::if_icmpgt => {
                     let mut frame = frame!();
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
@@ -184,6 +211,17 @@ impl VM {
                     }
                     frame.sp -= 2;
                 }
+                // Inst::ifnonnull => {
+                //     let mut frame = frame!();
+                //     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
+                //     let val = self.stack[self.bp + frame.sp - 1].clone();
+                //     if true {
+                //         frame.pc = (frame.pc as isize + branch as isize) as usize;
+                //     } else {
+                //         frame.pc += 3;
+                //     }
+                //     frame.sp -= 1;
+                // }
                 Inst::ireturn => {
                     self.stack[self.bp] =
                         Variable::Int(self.stack[self.bp + frame!().sp - 1].get_int());
@@ -205,9 +243,104 @@ impl VM {
         }
     }
 
-    fn run_get_field(&mut self) {
-        // self.run_get_static();
+    fn run_native_method(&mut self) {
+        let frame = self.frame_stack.last_mut().unwrap();
+        let frame_class = unsafe { &*frame.class.unwrap() };
+        let class_name = frame_class.get_name().unwrap();
+        let method_name = frame_class
+            .get_utf8_from_const_pool(frame.method_info.name_index as usize)
+            .unwrap();
+        let descriptor = frame_class
+            .get_utf8_from_const_pool(frame.method_info.descriptor_index as usize)
+            .unwrap();
+        let signature = format!("{}.{}:{}", class_name, method_name, descriptor);
+
+        match signature.as_str() {
+            "Print.println:(I)V" => {
+                println!("{}", self.stack[self.bp + 0].get_int());
+            }
+            _ => {}
+        }
     }
+
+    // fn run_get_field(&mut self) {
+    // #[rustfmt::skip]
+    // macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
+    //
+    // let frame = frame!();
+    // let frame_class = unsafe { &*frame.class.unwrap() };
+    // let code =
+    //     if let Some(Attribute::Code { code, .. }) = frame.method_info.get_code_attribute() {
+    //         code.clone()
+    //     } else {
+    //         panic!()
+    //     };
+    // let index = ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize;
+    // frame.pc += 3;
+    //
+    // let popped = self.stack[self.bp + frame.pc - 1].clone();
+    // frame.sp -= 1;
+    //
+    // let const_pool = frame_class.classfile.constant_pool[index].clone();
+    // let (class_index, name_and_type_index) = if let Constant::FieldrefInfo {
+    //     class_index,
+    //     name_and_type_index,
+    // } = const_pool
+    // {
+    //     (class_index as usize, name_and_type_index as usize)
+    // } else {
+    //     panic!()
+    // };
+    //
+    // let const_pool = frame_class.classfile.constant_pool[class_index as usize].clone();
+    // let name_index = if let Constant::ClassInfo { name_index } = const_pool {
+    //     name_index
+    // } else {
+    //     panic!()
+    // };
+    //
+    // let class_name = frame_class.classfile.constant_pool[name_index as usize]
+    //     .get_utf8()
+    //     .unwrap();
+    //
+    // let class = *unsafe { &*self.classheap.unwrap() }
+    //     .class_map
+    //     .get(class_name)
+    //     .unwrap();
+    //
+    // let const_pool = frame_class.classfile.constant_pool[name_and_type_index].clone();
+    //
+    // let mut method = MethodInfo::new();
+    //
+    // if let Constant::NameAndTypeInfo {
+    //     name_index,
+    //     descriptor_index,
+    // } = const_pool
+    // {
+    //     method.name_index = name_index;
+    //     method.descriptor_index = descriptor_index;
+    // }
+    //
+    // method.access_flags = 0;
+    //
+    // let name = frame_class.classfile.constant_pool[method.name_index as usize]
+    //     .get_utf8()
+    //     .unwrap();
+    // let descriptor = frame_class.classfile.constant_pool[method.descriptor_index as usize]
+    //     .get_utf8()
+    //     .unwrap();
+    // println!("getstatic1: {}.{}:{}", class_name, name, descriptor);
+    // println!("{:?}", unsafe { &*(&*class).classheap.unwrap() }.class_map);
+    //
+    // println!("class name {}", class_name);
+    //
+    // let (virtual_class, method2) = unsafe { &*class }.get_field(name, descriptor).unwrap();
+    //
+    // let object = unsafe { &mut *self.objectheap.unwrap() }.create_object(virtual_class);
+    //
+    // self.stack[self.bp + frame.sp] = Variable::Object(object);
+    // frame.sp += 1;
+    // }
 
     fn run_get_static(&mut self) {
         #[rustfmt::skip]
@@ -272,14 +405,13 @@ impl VM {
         let descriptor = frame_class.classfile.constant_pool[method.descriptor_index as usize]
             .get_utf8()
             .unwrap();
-        println!("getstatic1: {}.{}:{}", class_name, name, descriptor);
-        println!("{:?}", unsafe { &*(&*class).classheap.unwrap() }.class_map);
 
-        println!("class name {}", class_name);
+        // println!("getstatic1: {}.{}:{}", class_name, name, descriptor);
+        // println!("{:?}", unsafe { &*(&*class).classheap.unwrap() }.class_map);
+        //
+        // println!("class name {}", class_name);
 
-        let (virtual_class, method2) = unsafe { &*class }
-            .get_field("out", "Ljava/io/PrintStream;")
-            .unwrap();
+        let (virtual_class, _) = unsafe { &*class }.get_field(name, descriptor).unwrap();
 
         let object = unsafe { &mut *self.objectheap.unwrap() }.create_object(virtual_class);
 
@@ -311,9 +443,7 @@ impl VM {
             panic!()
         };
 
-        let const_pool = unsafe { &*frame!().class.unwrap() }.classfile.constant_pool
-            [class_index as usize]
-            .clone();
+        let const_pool = frame_class.classfile.constant_pool[class_index as usize].clone();
 
         let name_index = if let Constant::ClassInfo { name_index } = const_pool {
             name_index
@@ -321,8 +451,7 @@ impl VM {
             panic!()
         };
 
-        let class_name = unsafe { &*frame!().class.unwrap() }.classfile.constant_pool
-            [name_index as usize]
+        let class_name = frame_class.classfile.constant_pool[name_index as usize]
             .get_utf8()
             .unwrap();
 
@@ -331,9 +460,7 @@ impl VM {
             .get(class_name)
             .unwrap();
 
-        let const_pool = unsafe { &*frame!().class.unwrap() }.classfile.constant_pool
-            [name_and_type_index as usize]
-            .clone();
+        let const_pool = frame_class.classfile.constant_pool[name_and_type_index as usize].clone();
 
         let mut method = MethodInfo::new();
 
@@ -348,30 +475,28 @@ impl VM {
 
         method.access_flags = 0;
 
-        let name = unsafe { &*frame!().class.unwrap() }.classfile.constant_pool
-            [method.name_index as usize]
+        let name = frame_class.classfile.constant_pool[method.name_index as usize]
             .get_utf8()
             .unwrap();
-        let descriptor = unsafe { &*frame!().class.unwrap() }.classfile.constant_pool
-            [method.descriptor_index as usize]
+        let descriptor = frame_class.classfile.constant_pool[method.descriptor_index as usize]
             .get_utf8()
             .unwrap();
-        println!("invoke: {}.{}:{}", class_name, name, descriptor);
 
-        // println!("{:?}", unsafe { &**class });
+        // println!("invoke: {}.{}:{}", class_name, name, descriptor);
 
         let (virtual_class, method2) = unsafe { &**class }.get_method(name, descriptor).unwrap();
 
-        let former_sp = frame!().sp as usize;
+        let former_sp = frame.sp as usize;
 
         self.frame_stack.push(Frame::new());
 
-        frame!().pc = 0;
-        frame!().method_info = method2.clone();
+        let frame = frame!();
 
-        method.access_flags = frame!().method_info.access_flags;
+        frame.method_info = method2;
 
-        frame!().class = if method.access_flags & 0x0020/*=ACC_SUPER*/> 0 {
+        method.access_flags = frame.method_info.access_flags;
+
+        frame.class = if method.access_flags & 0x0020/*=ACC_SUPER*/> 0 {
             Some(unsafe { &*virtual_class }.get_super_class().unwrap())
         } else {
             Some(virtual_class)
@@ -408,24 +533,22 @@ impl VM {
 
         let mut discard_stack = params_num;
 
-        println!("native -> {}", frame!().method_info.access_flags & 0x0100);
-        if let Some(Attribute::Code {
-            max_locals, code, ..
-        }) = frame!().method_info.get_code_attribute()
-        {
-            println!("{:?}", code);
-            // TODO: method_info.access_flags & ACC_NATIVE => do not add max_locals
-            discard_stack += *max_locals as usize;
+        if frame.method_info.access_flags & 0x0100 > 0 {
+            // method_info.access_flags & ACC_NATIVE => do not add max_locals
         } else {
-            panic!()
-        };
+            if let Some(Attribute::Code { max_locals, .. }) = frame.method_info.get_code_attribute()
+            {
+                discard_stack += *max_locals as usize;
+            } else {
+                panic!()
+            };
+        }
 
-        frame!().sp = discard_stack;
+        frame.sp = discard_stack;
         self.bp += former_sp - params_num;
 
         self.run();
 
-        println!("finish");
         self.bp -= former_sp - params_num;
         self.frame_stack.pop();
     }
@@ -446,6 +569,9 @@ mod Inst {
     pub const sipush:       u8 = 17;
     pub const ldc:          u8 = 18;
     pub const aload_0:      u8 = 42;
+    pub const aload_1:      u8 = 43;
+    pub const aload_2:      u8 = 44;
+    pub const aload_3:      u8 = 45;
     pub const istore_0:     u8 = 59;
     pub const istore_1:     u8 = 60;
     pub const istore_2:     u8 = 61;
@@ -456,10 +582,15 @@ mod Inst {
     pub const iload_3:      u8 = 29;
     pub const bipush:       u8 = 16;
     pub const astore_0:     u8 = 76;
+    pub const astore_1:     u8 = 77;
+    pub const astore_2:     u8 = 78;
+    pub const astore_3:     u8 = 79;
     pub const pop:          u8 = 87;
     pub const dup:          u8 = 89;
     pub const iadd:         u8 = 96;
+    pub const isub:         u8 = 100;
     pub const iinc:         u8 = 132;
+    pub const if_icmpge:    u8 = 162;
     pub const if_icmpgt:    u8 = 163;
     pub const goto:         u8 = 167;
     pub const ireturn:      u8 = 172;
@@ -470,4 +601,5 @@ mod Inst {
     pub const invokespecial:u8 = 183;
     pub const invokestatic: u8 = 184;
     pub const monitorenter: u8 = 194;
+    pub const ifnonnull:    u8 = 199;
 }

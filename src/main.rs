@@ -51,11 +51,21 @@ fn main() {
     //     .load_class("java/lang/System.class", class3_ptr)
     //     .unwrap();
     // unsafe { (*class3_ptr).classheap = Some(classheap_ptr) };
-    let class4_ptr = gc::new(Class::new());
+    // let class4_ptr = gc::new(Class::new());
+    // classheap
+    //     .load_class("java/lang/String.class", class4_ptr)
+    //     .unwrap();
+    // unsafe { (*class4_ptr).classheap = Some(classheap_ptr) };
+    // let class5_ptr = gc::new(Class::new());
+    // classheap
+    //     .load_class("java/lang/Integer.class", class5_ptr)
+    //     .unwrap();
+    // unsafe { (*class5_ptr).classheap = Some(classheap_ptr) };
+    let class6_ptr = gc::new(Class::new());
     classheap
-        .load_class("java/lang/String.class", class4_ptr)
+        .load_class("examples/Print.class", class6_ptr)
         .unwrap();
-    unsafe { (*class4_ptr).classheap = Some(classheap_ptr) };
+    unsafe { (*class6_ptr).classheap = Some(classheap_ptr) };
 
     let (class, method) = unsafe { &*class1_ptr }
         .get_method("main", "([Ljava/lang/String;)V")
@@ -79,6 +89,7 @@ fn main() {
     } else {
         panic!()
     };
+    println!("---- exec output ----");
     vm.run();
-    println!("stack top: {:?}", vm.stack);
+    // println!("stack top: {:?}", vm.stack);
 }

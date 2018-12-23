@@ -36,6 +36,10 @@ impl Class {
         self.classfile.constant_pool[const_class.get_class_name_index()?].get_utf8()
     }
 
+    pub fn get_utf8_from_const_pool(&self, index: usize) -> Option<&String> {
+        self.classfile.constant_pool[index].get_utf8()
+    }
+
     pub fn get_method(
         &self,
         method_name: &str,

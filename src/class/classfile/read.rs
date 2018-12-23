@@ -550,6 +550,7 @@ impl ClassFileReader {
     fn read_verification_type_info(&mut self) -> Option<VerificationTypeInfo> {
         let tag = self.read_u8()?;
         match tag {
+            0 => Some(VerificationTypeInfo::Top),
             1 => Some(VerificationTypeInfo::Integer),
             2 => Some(VerificationTypeInfo::Float),
             3 => Some(VerificationTypeInfo::Double),
