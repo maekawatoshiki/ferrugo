@@ -32,8 +32,6 @@ fn main() {
     let classheap = unsafe { &mut *classheap_ptr };
 
     let class1_ptr = gc::new(Class::new());
-    let class2_ptr = gc::new(Class::new());
-    let class3_ptr = gc::new(Class::new());
 
     if let None = classheap.load_class(filename, class1_ptr) {
         eprintln!(
@@ -43,14 +41,21 @@ fn main() {
         return;
     }
     unsafe { (*class1_ptr).classheap = Some(classheap_ptr) };
+    // let class2_ptr = gc::new(Class::new());
+    // classheap
+    //     .load_class("java/io/PrintStream.class", class2_ptr)
+    //     .unwrap();
+    // unsafe { (*class2_ptr).classheap = Some(classheap_ptr) };
+    // let class3_ptr = gc::new(Class::new());
+    // classheap
+    //     .load_class("java/lang/System.class", class3_ptr)
+    //     .unwrap();
+    // unsafe { (*class3_ptr).classheap = Some(classheap_ptr) };
+    let class4_ptr = gc::new(Class::new());
     classheap
-        .load_class("java/io/PrintStream.class", class2_ptr)
+        .load_class("java/lang/String.class", class4_ptr)
         .unwrap();
-    unsafe { (*class2_ptr).classheap = Some(classheap_ptr) };
-    classheap
-        .load_class("java/lang/System.class", class3_ptr)
-        .unwrap();
-    unsafe { (*class3_ptr).classheap = Some(classheap_ptr) };
+    unsafe { (*class4_ptr).classheap = Some(classheap_ptr) };
 
     let (class, method) = unsafe { &*class1_ptr }
         .get_method("main", "([Ljava/lang/String;)V")

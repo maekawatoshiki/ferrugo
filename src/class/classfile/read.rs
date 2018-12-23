@@ -337,6 +337,7 @@ impl ClassFileReader {
             "Deprecated" => self.read_deprecated_attribute()?,
             "RuntimeVisibleAnnotations" => self.read_runtime_visible_annotations_attribute()?,
             "InnerClasses" => self.read_inner_classes_attribute()?,
+            "ConstantValue" => self.read_constant_value_attribute()?,
             e => unimplemented!("{}", e),
         };
         Some(AttributeInfo {
@@ -450,6 +451,13 @@ impl ClassFileReader {
         })
     }
 
+    fn read_constant_value_attribute(&mut self) -> Option<Attribute> {
+        let constantvalue_index = self.read_u16()?;
+        Some(Attribute::ConstantValue {
+            constantvalue_index,
+        })
+    }
+
     fn read_classes(&mut self) -> Option<InnerClassesBody> {
         let inner_class_info_index = self.read_u16()?;
         let outer_class_info_index = self.read_u16()?;
@@ -479,7 +487,6 @@ impl ClassFileReader {
 
     fn read_element_value_pair(&mut self) -> Option<ElementValuePair> {
         let element_name_index = self.read_u16()?;
-        println!("{}", element_name_index);
         let value = self.read_element_value()?;
         Some(ElementValuePair {
             element_name_index,

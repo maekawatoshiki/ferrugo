@@ -110,6 +110,13 @@ impl VM {
                     frame.sp += 1;
                     frame.pc += 1;
                 }
+                Inst::astore_0 => {
+                    let mut frame = frame!();
+                    self.stack[self.bp + cur_code as usize - Inst::astore_0 as usize] =
+                        self.stack[self.bp + frame.sp - 1].clone();
+                    frame.sp -= 1;
+                    frame.pc += 1;
+                }
                 Inst::bipush => {
                     let mut frame = frame!();
                     self.stack[self.bp + frame.sp] = Variable::Char(code[frame.pc + 1] as i8);
@@ -186,9 +193,20 @@ impl VM {
                     return Inst::return_;
                 }
                 Inst::getstatic => self.run_get_static(),
+                // Inst::getfield => self.run_get_field(),
+                Inst::monitorenter => {
+                    // TODO: Implement
+                    let mut frame = frame!();
+                    frame.sp -= 1;
+                    frame.pc += 1;
+                }
                 e => unimplemented!("{}", e),
             }
         }
+    }
+
+    fn run_get_field(&mut self) {
+        // self.run_get_static();
     }
 
     fn run_get_static(&mut self) {
@@ -205,9 +223,6 @@ impl VM {
             };
         let index = ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize;
         frame.pc += 3;
-
-        // let objectref = self.stack[
-        // Variable objectRef = pFrameStack[0].stack[pFrameStack[0].sp];
 
         let const_pool = frame_class.classfile.constant_pool[index].clone();
         let (class_index, name_and_type_index) = if let Constant::FieldrefInfo {
@@ -265,13 +280,9 @@ impl VM {
         let (virtual_class, method2) = unsafe { &*class }
             .get_field("out", "Ljava/io/PrintStream;")
             .unwrap();
-        //
-        // println!(
-        //     "getstatic2: {:?}, {:?}",
-        //     unsafe { &*virtual_class },
-        //     method2
-        // );
+
         let object = unsafe { &mut *self.objectheap.unwrap() }.create_object(virtual_class);
+
         self.stack[self.bp + frame.sp] = Variable::Object(object);
         frame.sp += 1;
     }
@@ -389,7 +400,7 @@ impl VM {
             }
 
             if is_invoke_static {
-                count 
+                count
             } else {
                 count + 1
             }
@@ -398,8 +409,11 @@ impl VM {
         let mut discard_stack = params_num;
 
         println!("native -> {}", frame!().method_info.access_flags & 0x0100);
-        if let Some(Attribute::Code { max_locals, .. }) = frame!().method_info.get_code_attribute()
+        if let Some(Attribute::Code {
+            max_locals, code, ..
+        }) = frame!().method_info.get_code_attribute()
         {
+            println!("{:?}", code);
             // TODO: method_info.access_flags & ACC_NATIVE => do not add max_locals
             discard_stack += *max_locals as usize;
         } else {
@@ -411,6 +425,7 @@ impl VM {
 
         self.run();
 
+        println!("finish");
         self.bp -= former_sp - params_num;
         self.frame_stack.pop();
     }
@@ -440,6 +455,7 @@ mod Inst {
     pub const iload_2:      u8 = 28;
     pub const iload_3:      u8 = 29;
     pub const bipush:       u8 = 16;
+    pub const astore_0:     u8 = 76;
     pub const pop:          u8 = 87;
     pub const dup:          u8 = 89;
     pub const iadd:         u8 = 96;
@@ -449,7 +465,9 @@ mod Inst {
     pub const ireturn:      u8 = 172;
     pub const return_:      u8 = 177;
     pub const getstatic:    u8 = 178;
+    pub const getfield:     u8 = 180;
     pub const invokevirtual:u8 = 182;
     pub const invokespecial:u8 = 183;
     pub const invokestatic: u8 = 184;
+    pub const monitorenter: u8 = 194;
 }

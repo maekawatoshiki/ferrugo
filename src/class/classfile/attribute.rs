@@ -44,6 +44,9 @@ pub enum Attribute {
         number_of_classes: u16,
         classes: Vec<InnerClassesBody>,
     },
+    ConstantValue {
+        constantvalue_index: u16,
+    },
 }
 
 #[derive(Debug, Clone)]
