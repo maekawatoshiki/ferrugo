@@ -4,10 +4,12 @@ use super::super::class::classfile::method::MethodInfo;
 use super::super::class::classheap::ClassHeap;
 use super::super::gc::gc::GcType;
 use super::frame::{Frame, Variable};
+use super::objectheap::ObjectHeap;
 
 #[derive(Debug)]
 pub struct VM {
     pub classheap: Option<GcType<ClassHeap>>,
+    pub objectheap: Option<GcType<ObjectHeap>>,
     pub frame_stack: Vec<Frame>,
     pub stack: Vec<Variable>,
     pub bp: usize,
@@ -17,6 +19,7 @@ impl VM {
     pub fn new() -> Self {
         VM {
             classheap: None,
+            objectheap: None,
             frame_stack: {
                 let mut frame_stack = Vec::with_capacity(128);
                 frame_stack.push(Frame::new());
@@ -100,6 +103,13 @@ impl VM {
                     frame.sp += 1;
                     frame.pc += 2;
                 }
+                Inst::aload_0 => {
+                    let mut frame = frame!();
+                    self.stack[self.bp + frame.sp] =
+                        self.stack[self.bp + cur_code as usize - Inst::aload_0 as usize].clone();
+                    frame.sp += 1;
+                    frame.pc += 1;
+                }
                 Inst::bipush => {
                     let mut frame = frame!();
                     self.stack[self.bp + frame.sp] = Variable::Char(code[frame.pc + 1] as i8);
@@ -140,6 +150,12 @@ impl VM {
                     // frame.sp -= 1;
                     frame.pc += 1;
                 }
+                Inst::dup => {
+                    let mut frame = frame!();
+                    self.stack[self.bp + frame.sp] = self.stack[self.bp + frame.sp - 1].clone();
+                    frame.sp += 1;
+                    frame.pc += 1;
+                }
                 Inst::goto => {
                     let mut frame = frame!();
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
@@ -166,6 +182,11 @@ impl VM {
                     return Inst::return_;
                 }
                 Inst::getstatic => {
+                    let index = {
+                        let frame = frame!();
+                        ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
+                    };
+                    self.run_get_static(index);
                     frame!().pc += 3;
                 }
                 e => unimplemented!("{}", e),
@@ -173,12 +194,46 @@ impl VM {
         }
     }
 
+    fn run_get_static(&mut self, index: usize) {
+        #[rustfmt::skip]
+        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
+
+        let frame = frame!();
+        let frame_class = unsafe { &*frame.class.unwrap() };
+
+        let const_pool = frame_class.classfile.constant_pool[index].clone();
+        let (class_index, name_and_type_index) = if let Constant::FieldrefInfo {
+            class_index,
+            name_and_type_index,
+        } = const_pool
+        {
+            (class_index, name_and_type_index)
+        } else {
+            panic!()
+        };
+
+        let const_pool = frame_class.classfile.constant_pool[class_index as usize].clone();
+        let name_index = if let Constant::ClassInfo { name_index } = const_pool {
+            name_index
+        } else {
+            panic!()
+        };
+
+        let class_name = frame_class.classfile.constant_pool[name_index as usize]
+            .get_utf8()
+            .unwrap();
+
+        let class = unsafe { &*self.classheap.unwrap() }
+            .class_map
+            .get(class_name)
+            .unwrap();
+            
+        println!("getstatic: {:?}, class {:?}", const_pool, class_name);
+    }
+
     fn run_invoke_static(&mut self, is_invoke_virtual: bool) {
-        macro_rules! frame {
-            () => {{
-                self.frame_stack.last_mut().unwrap()
-            }};
-        }
+        #[rustfmt::skip]
+        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
 
         let frame = frame!();
         let frame_class = unsafe { &*frame.class.unwrap() };
@@ -341,6 +396,7 @@ mod Inst {
     pub const iload_3:      u8 = 29;
     pub const bipush:       u8 = 16;
     pub const pop:          u8 = 87;
+    pub const dup:          u8 = 89;
     pub const iadd:         u8 = 96;
     pub const iinc:         u8 = 132;
     pub const if_icmpgt:    u8 = 163;

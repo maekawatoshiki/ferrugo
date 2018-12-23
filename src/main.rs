@@ -2,7 +2,9 @@ extern crate ferrugo;
 use ferrugo::class::class::Class;
 use ferrugo::class::classfile::attribute::Attribute;
 use ferrugo::class::classheap;
+use ferrugo::exec::objectheap::ObjectHeap;
 use ferrugo::exec::vm::VM;
+use ferrugo::exec::frame::Variable;
 use ferrugo::gc::gc;
 
 extern crate clap;
@@ -30,7 +32,8 @@ fn main() {
     let classheap = unsafe { &mut *classheap_ptr };
 
     let class1_ptr = gc::new(Class::new());
-    let _class2_ptr = gc::new(Class::new());
+    let class2_ptr = gc::new(Class::new());
+    let class3_ptr = gc::new(Class::new());
 
     if let None = classheap.load_class(filename, class1_ptr) {
         eprintln!(
@@ -40,16 +43,28 @@ fn main() {
         return;
     }
     unsafe { (*class1_ptr).classheap = Some(classheap_ptr) };
-    // classheap
-    //     .load_class("java/lang/Object.class", class2_ptr)
-    //     .unwrap();
+    classheap
+        .load_class("java/io/PrintStream.class", class2_ptr)
+        .unwrap();
+    unsafe { (*class2_ptr).classheap = Some(classheap_ptr) };
+    classheap
+        .load_class("java/lang/System.class", class3_ptr)
+        .unwrap();
+    unsafe { (*class3_ptr).classheap = Some(classheap_ptr) };
 
     let (class, method) = unsafe { &*class1_ptr }
         .get_method("main", "([Ljava/lang/String;)V")
         .unwrap();
 
+    let objectheap_ptr = gc::new(ObjectHeap::new());
+    let objectheap = unsafe { &mut *objectheap_ptr};
+
+    let object = objectheap.create_object(class1_ptr);
+
     let mut vm = VM::new();
     vm.classheap = Some(classheap_ptr);
+    vm.objectheap = Some(objectheap_ptr);
+    vm.stack[0] = Variable::Object(object);
     vm.frame_stack[0].class = Some(class);
     vm.frame_stack[0].method_info = method;
     vm.frame_stack[0].sp = if let Some(Attribute::Code { max_locals, .. }) =
