@@ -35,6 +35,23 @@ pub enum Attribute {
         number_of_exceptions: u16,
         exception_index_table: Vec<u16>,
     },
+    Deprecated,
+    RuntimeVisibleAnnotations {
+        num_annotations: u16,
+        annotations: Vec<Annotation>,
+    },
+    InnerClasses {
+        number_of_classes: u16,
+        classes: Vec<InnerClassesBody>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct InnerClassesBody {
+    pub inner_class_info_index: u16,
+    pub outer_class_info_index: u16,
+    pub inner_name_index: u16,
+    pub inner_class_access_flags: u16,
 }
 
 #[derive(Debug, Clone)]
@@ -90,4 +107,22 @@ pub enum VerificationTypeInfo {
     UninitializedThis,
     Object { cpool_index: u16 },
     Uninitialized,
+}
+
+#[derive(Clone, Debug)]
+pub struct Annotation {
+    pub type_index: u16,
+    pub num_element_value_pairs: u16,
+    pub element_value_pairs: Vec<ElementValuePair>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ElementValuePair {
+    pub element_name_index: u16,
+    pub value: ElementValue,
+}
+
+#[derive(Clone, Debug)]
+pub struct ElementValue {
+    // TODO: Implement
 }

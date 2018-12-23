@@ -1,6 +1,6 @@
 use super::attribute::{
-    Attribute, AttributeInfo, Exception, LineNumber, StackMapFrame, StackMapFrameBody,
-    VerificationTypeInfo,
+    Annotation, Attribute, AttributeInfo, ElementValue, ElementValuePair, Exception,
+    InnerClassesBody, LineNumber, StackMapFrame, StackMapFrameBody, VerificationTypeInfo,
 };
 use super::classfile::ClassFile;
 use super::constant;
@@ -334,6 +334,9 @@ impl ClassFileReader {
             "StackMapTable" => self.read_stack_map_table_attribute()?,
             "Signature" => self.read_signature_attribute()?,
             "Exceptions" => self.read_exceptions_attribute()?,
+            "Deprecated" => self.read_deprecated_attribute()?,
+            "RuntimeVisibleAnnotations" => self.read_runtime_visible_annotations_attribute()?,
+            "InnerClasses" => self.read_inner_classes_attribute()?,
             e => unimplemented!("{}", e),
         };
         Some(AttributeInfo {
@@ -417,6 +420,75 @@ impl ClassFileReader {
             number_of_exceptions,
             exception_index_table,
         })
+    }
+
+    fn read_deprecated_attribute(&mut self) -> Option<Attribute> {
+        Some(Attribute::Deprecated)
+    }
+
+    fn read_runtime_visible_annotations_attribute(&mut self) -> Option<Attribute> {
+        let num_annotations = self.read_u16()?;
+        let mut annotations = vec![];
+        for _ in 0..num_annotations {
+            annotations.push(self.read_annotation()?);
+        }
+        Some(Attribute::RuntimeVisibleAnnotations {
+            num_annotations,
+            annotations,
+        })
+    }
+
+    fn read_inner_classes_attribute(&mut self) -> Option<Attribute> {
+        let number_of_classes = self.read_u16()?;
+        let mut classes = vec![];
+        for _ in 0..number_of_classes {
+            classes.push(self.read_classes()?)
+        }
+        Some(Attribute::InnerClasses {
+            number_of_classes,
+            classes,
+        })
+    }
+
+    fn read_classes(&mut self) -> Option<InnerClassesBody> {
+        let inner_class_info_index = self.read_u16()?;
+        let outer_class_info_index = self.read_u16()?;
+        let inner_name_index = self.read_u16()?;
+        let inner_class_access_flags = self.read_u16()?;
+        Some(InnerClassesBody {
+            inner_class_info_index,
+            outer_class_info_index,
+            inner_name_index,
+            inner_class_access_flags,
+        })
+    }
+
+    fn read_annotation(&mut self) -> Option<Annotation> {
+        let type_index = self.read_u16()?;
+        let num_element_value_pairs = self.read_u16()?;
+        let mut element_value_pairs = vec![];
+        for _ in 0..num_element_value_pairs {
+            element_value_pairs.push(self.read_element_value_pair()?);
+        }
+        Some(Annotation {
+            type_index,
+            num_element_value_pairs,
+            element_value_pairs,
+        })
+    }
+
+    fn read_element_value_pair(&mut self) -> Option<ElementValuePair> {
+        let element_name_index = self.read_u16()?;
+        println!("{}", element_name_index);
+        let value = self.read_element_value()?;
+        Some(ElementValuePair {
+            element_name_index,
+            value,
+        })
+    }
+
+    fn read_element_value(&mut self) -> Option<ElementValue> {
+        unimplemented!()
     }
 
     fn read_stack_map_frame(&mut self) -> Option<StackMapFrame> {
