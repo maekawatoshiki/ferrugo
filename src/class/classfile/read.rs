@@ -590,38 +590,29 @@ impl ClassFileReader {
 impl ClassFileReader {
     fn read_u32(&mut self) -> Option<u32> {
         let mut buf = [0u8; 4];
-        match self.reader.read(&mut buf) {
-            Ok(sz) => {
-                assert_eq!(sz, 4);
-                Some(
-                    ((buf[0] as u32) << 24)
-                        + ((buf[1] as u32) << 16)
-                        + ((buf[2] as u32) << 8)
-                        + buf[3] as u32,
-                )
-            }
+        match self.reader.read_exact(&mut buf) {
+            Ok(()) => Some(
+                ((buf[0] as u32) << 24)
+                    + ((buf[1] as u32) << 16)
+                    + ((buf[2] as u32) << 8)
+                    + buf[3] as u32,
+            ),
             Err(_) => None,
         }
     }
 
     fn read_u16(&mut self) -> Option<u16> {
         let mut buf = [0u8; 2];
-        match self.reader.read(&mut buf) {
-            Ok(sz) => {
-                assert_eq!(sz, 2);
-                Some(((buf[0] as u16) << 8) + buf[1] as u16)
-            }
+        match self.reader.read_exact(&mut buf) {
+            Ok(()) => Some(((buf[0] as u16) << 8) + buf[1] as u16),
             Err(_) => None,
         }
     }
 
     fn read_u8(&mut self) -> Option<u8> {
         let mut buf = [0u8; 1];
-        match self.reader.read(&mut buf) {
-            Ok(sz) => {
-                assert_eq!(sz, 1);
-                Some(buf[0])
-            }
+        match self.reader.read_exact(&mut buf) {
+            Ok(()) => Some(buf[0]),
             Err(_) => None,
         }
     }
