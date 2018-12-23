@@ -2,9 +2,9 @@ extern crate ferrugo;
 use ferrugo::class::class::Class;
 use ferrugo::class::classfile::attribute::Attribute;
 use ferrugo::class::classheap;
+use ferrugo::exec::frame::Variable;
 use ferrugo::exec::objectheap::ObjectHeap;
 use ferrugo::exec::vm::VM;
-use ferrugo::exec::frame::Variable;
 use ferrugo::gc::gc;
 
 extern crate clap;
@@ -57,7 +57,7 @@ fn main() {
         .unwrap();
 
     let objectheap_ptr = gc::new(ObjectHeap::new());
-    let objectheap = unsafe { &mut *objectheap_ptr};
+    let objectheap = unsafe { &mut *objectheap_ptr };
 
     let object = objectheap.create_object(class1_ptr);
 

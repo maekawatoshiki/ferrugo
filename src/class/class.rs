@@ -1,6 +1,6 @@
 use super::super::gc::gc::GcType;
 use super::classfile::read::ClassFileReader;
-use super::classfile::{classfile::ClassFile, method::MethodInfo};
+use super::classfile::{classfile::ClassFile, field::FieldInfo, method::MethodInfo};
 use super::classheap::ClassHeap;
 
 #[derive(Debug, Clone)]
@@ -64,6 +64,46 @@ impl Class {
                     .unwrap();
                 if descriptor == method_descriptor {
                     return Some((cur_class_ptr, cur_class.classfile.methods[i].clone()));
+                }
+            }
+
+            if let Some(x) = cur_class.get_super_class() {
+                cur_class_ptr = x;
+            } else {
+                break;
+            }
+        }
+        None
+    }
+
+    pub fn get_field(
+        &self,
+        field_name: &str,
+        field_descriptor: &str,
+    ) -> Option<(GcType<Class>, FieldInfo)> {
+        let mut cur_class_ptr = *unsafe { &(*self.classheap.unwrap()) }
+            .class_map
+            .get(self.get_name().unwrap())
+            .unwrap();
+
+        loop {
+            let cur_class = unsafe { &mut *cur_class_ptr };
+
+            for i in 0..cur_class.classfile.fields_count as usize {
+                let name = cur_class.classfile.constant_pool
+                    [(cur_class.classfile.fields[i].name_index) as usize]
+                    .get_utf8()
+                    .unwrap();
+                if name != field_name {
+                    continue;
+                }
+
+                let descriptor = cur_class.classfile.constant_pool
+                    [(cur_class.classfile.fields[i].descriptor_index) as usize]
+                    .get_utf8()
+                    .unwrap();
+                if descriptor == field_descriptor {
+                    return Some((cur_class_ptr, cur_class.classfile.fields[i].clone()));
                 }
             }
 
