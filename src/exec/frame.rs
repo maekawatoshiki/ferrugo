@@ -27,6 +27,13 @@ pub enum Variable {
     Short(i16),
     Int(i32),
     Float(f32),
+    Object(Object),
+    Pointer(GcType<u64>),
+}
+
+#[derive(Debug, Clone)]
+pub struct Object {
+    pub heap_id: usize,
 }
 
 impl Variable {
@@ -35,7 +42,7 @@ impl Variable {
             Variable::Char(n) => *n as i32,
             Variable::Short(n) => *n as i32,
             Variable::Int(n) => *n,
-            Variable::Float(_) => panic!("what?"),
+            _ => panic!("what?"),
         }
     }
 }

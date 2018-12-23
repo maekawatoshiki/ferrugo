@@ -84,4 +84,12 @@ impl Class {
             None
         }
     }
+
+    pub fn get_object_field_count(&self) -> usize {
+        let mut count = self.classfile.fields_count as usize;
+        if let Some(super_class) = self.get_super_class() {
+            count += unsafe { &*super_class }.get_object_field_count();
+        }
+        count
+    }
 }

@@ -123,12 +123,16 @@ impl VM {
                         Variable::Char(ref mut n) => *n += const_ as i8,
                         Variable::Short(ref mut n) => *n += const_ as i16,
                         Variable::Int(ref mut n) => *n += const_ as i32,
-                        Variable::Float(_) => panic!("must be int"),
+                        _ => panic!("must be int"),
                     }
                     frame.pc += 3;
                 }
                 Inst::invokestatic => {
-                    self.run_invoke_static();
+                    self.run_invoke_static(false);
+                    frame!().pc += 3;
+                }
+                Inst::invokevirtual => {
+                    self.run_invoke_static(true);
                     frame!().pc += 3;
                 }
                 Inst::pop => {
@@ -161,28 +165,30 @@ impl VM {
                 Inst::return_ => {
                     return Inst::return_;
                 }
-                _ => unimplemented!(),
+                Inst::getstatic => {
+                    frame!().pc += 3;
+                }
+                e => unimplemented!("{}", e),
             }
         }
     }
 
-    fn run_invoke_static(&mut self) {
+    fn run_invoke_static(&mut self, is_invoke_virtual: bool) {
         macro_rules! frame {
             () => {{
                 self.frame_stack.last_mut().unwrap()
             }};
         }
 
-        let mref_index = {
-            let frame = frame!();
+        let frame = frame!();
+        let frame_class = unsafe { &*frame.class.unwrap() };
+        let mref_index =
             if let Some(Attribute::Code { code, .. }) = frame.method_info.get_code_attribute() {
                 ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
             } else {
                 panic!()
-            }
-        };
-        let const_pool =
-            unsafe { &*frame!().class.unwrap() }.classfile.constant_pool[mref_index].clone();
+            };
+        let const_pool = frame_class.classfile.constant_pool[mref_index].clone();
 
         let (class_index, name_and_type_index) = if let Constant::MethodrefInfo {
             class_index,
@@ -239,6 +245,9 @@ impl VM {
             [method.descriptor_index as usize]
             .get_utf8()
             .unwrap();
+        println!("{}.{}:{}", class_name, name, descriptor);
+
+        // println!("{:?}", unsafe { &**class });
 
         let (virtual_class, method2) = unsafe { &**class }.get_method(name, descriptor).unwrap();
 
@@ -279,12 +288,16 @@ impl VM {
                 i += 1
             }
 
-            // TODO: if not invokestatic, then add 1
-            count
+            if is_invoke_virtual {
+                count + 1
+            } else {
+                count
+            }
         };
 
         let mut discard_stack = params_num;
 
+        println!("native -> {}", frame!().method_info.access_flags & 0x0100);
         if let Some(Attribute::Code { max_locals, .. }) = frame!().method_info.get_code_attribute()
         {
             // TODO: method_info.access_flags & ACC_NATIVE => do not add max_locals
@@ -317,6 +330,7 @@ mod Inst {
     pub const iconst_5:     u8 = 8;
     pub const sipush:       u8 = 17;
     pub const ldc:          u8 = 18;
+    pub const aload_0:      u8 = 42;
     pub const istore_0:     u8 = 59;
     pub const istore_1:     u8 = 60;
     pub const istore_2:     u8 = 61;
@@ -326,12 +340,14 @@ mod Inst {
     pub const iload_2:      u8 = 28;
     pub const iload_3:      u8 = 29;
     pub const bipush:       u8 = 16;
+    pub const pop:          u8 = 87;
     pub const iadd:         u8 = 96;
     pub const iinc:         u8 = 132;
     pub const if_icmpgt:    u8 = 163;
     pub const goto:         u8 = 167;
     pub const ireturn:      u8 = 172;
     pub const return_:      u8 = 177;
-    pub const pop:          u8 = 87;
+    pub const getstatic:    u8 = 178;
+    pub const invokevirtual:u8 = 182;
     pub const invokestatic: u8 = 184;
 }
