@@ -28,6 +28,13 @@ pub enum Attribute {
         number_of_entries: u16,
         entries: Vec<StackMapFrame>,
     },
+    Signature {
+        signature_index: u16,
+    },
+    Exceptions {
+        number_of_exceptions: u16,
+        exception_index_table: Vec<u16>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -53,9 +60,22 @@ pub struct StackMapFrame {
 #[derive(Debug, Clone)]
 pub enum StackMapFrameBody {
     SameFrame,
+    SameLocals1StackItemFrame {
+        stack: VerificationTypeInfo,
+    },
     AppendFrame {
         offset_delta: u16,
         locals: Vec<VerificationTypeInfo>,
+    },
+    ChopFrame {
+        offset_delta: u16,
+    },
+    FullFrame {
+        offset_delta: u16,
+        number_of_locals: u16,
+        locals: Vec<VerificationTypeInfo>,
+        number_of_stack_items: u16,
+        stack: Vec<VerificationTypeInfo>,
     },
 }
 
@@ -68,6 +88,6 @@ pub enum VerificationTypeInfo {
     Double,
     Null,
     UninitializedThis,
-    Object,
+    Object { cpool_index: u16 },
     Uninitialized,
 }
