@@ -27,6 +27,7 @@ pub enum Variable {
     Short(i16),
     Int(i32),
     Float(f32),
+    Double(f64),
     Object(Object),
     Pointer(GcType<u64>),
 }

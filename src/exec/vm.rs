@@ -122,11 +122,45 @@ impl VM {
                     frame.sp += 1;
                     frame.pc += 2;
                 }
+                Inst::ldc2_w => {
+                    let mut frame = frame!();
+                    let index = ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize;
+                    let val = match unsafe { &*frame.class.unwrap() }.classfile.constant_pool[index]
+                    {
+                        Constant::IntegerInfo { i } => Variable::Int(i),
+                        Constant::FloatInfo { f } => Variable::Float(f),
+                        Constant::String { string_index } => {
+                            let string = unsafe { &*frame.class.unwrap() }
+                                .get_utf8_from_const_pool(string_index as usize)
+                                .unwrap()
+                                .to_owned();
+                            // TODO: Constant string refers to constant pool,
+                            // so should not create a new string object.
+                            // "aaa" == "aaa" // => true
+                            Variable::Object(
+                                unsafe { &mut *self.objectheap }
+                                    .create_string_object(string, self.classheap),
+                            )
+                        }
+                        Constant::DoubleInfo { f } => Variable::Double(f),
+                        _ => unimplemented!(),
+                    };
+                    self.stack[self.bp + frame.sp] = val;
+                    frame.sp += 1;
+                    frame.pc += 2;
+                }
                 Inst::aload_0 | Inst::aload_1 | Inst::aload_2 | Inst::aload_3 => {
                     let mut frame = frame!();
                     self.stack[self.bp + frame.sp] =
                         self.stack[self.bp + cur_code as usize - Inst::aload_0 as usize].clone();
                     frame.sp += 1;
+                    frame.pc += 1;
+                }
+                Inst::dstore_0 | Inst::dstore_1 | Inst::dstore_2 | Inst::dstore_3 => {
+                    let mut frame = frame!();
+                    self.stack[self.bp + (cur_code as usize - Inst::dstore_0 as usize)] =
+                        self.stack[self.bp + frame.sp - 1].clone();
+                    frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::astore_0 | Inst::astore_1 | Inst::astore_2 | Inst::astore_3 => {
@@ -599,6 +633,7 @@ mod Inst {
     pub const iconst_5:     u8 = 8;
     pub const sipush:       u8 = 17;
     pub const ldc:          u8 = 18;
+    pub const ldc2_w:       u8 = 20;
     pub const aload_0:      u8 = 42;
     pub const aload_1:      u8 = 43;
     pub const aload_2:      u8 = 44;
@@ -612,6 +647,10 @@ mod Inst {
     pub const iload_2:      u8 = 28;
     pub const iload_3:      u8 = 29;
     pub const bipush:       u8 = 16;
+    pub const dstore_0:     u8 = 71;
+    pub const dstore_1:     u8 = 72;
+    pub const dstore_2:     u8 = 73;
+    pub const dstore_3:     u8 = 74;
     pub const astore_0:     u8 = 75;
     pub const astore_1:     u8 = 76;
     pub const astore_2:     u8 = 77;

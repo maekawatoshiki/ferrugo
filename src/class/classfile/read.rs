@@ -58,12 +58,7 @@ impl ClassFileReader {
             // println!("tag: {:?}", tag);
             let const_ty = constant::u8_to_constant_type(tag)?;
             let constant = self.read_constant(&const_ty)?;
-            println!(
-                "tag({}): {:?}: {:?}",
-                constant_pool.len(),
-                const_ty,
-                constant
-            );
+            println!("#{}:\t{:?}", constant_pool.len(), constant);
 
             constant_pool.push(constant);
 
