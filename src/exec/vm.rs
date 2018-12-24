@@ -8,18 +8,18 @@ use super::objectheap::ObjectHeap;
 
 #[derive(Debug)]
 pub struct VM {
-    pub classheap: Option<GcType<ClassHeap>>,
-    pub objectheap: Option<GcType<ObjectHeap>>,
+    pub classheap: GcType<ClassHeap>,
+    pub objectheap: GcType<ObjectHeap>,
     pub frame_stack: Vec<Frame>,
     pub stack: Vec<Variable>,
     pub bp: usize,
 }
 
 impl VM {
-    pub fn new() -> Self {
+    pub fn new(classheap: GcType<ClassHeap>, objectheap: GcType<ObjectHeap>) -> Self {
         VM {
-            classheap: None,
-            objectheap: None,
+            classheap,
+            objectheap,
             frame_stack: {
                 let mut frame_stack = Vec::with_capacity(128);
                 frame_stack.push(Frame::new());
@@ -112,8 +112,8 @@ impl VM {
                             // so should not create a new string object.
                             // "aaa" == "aaa" // => true
                             Variable::Object(
-                                unsafe { &mut *self.objectheap.unwrap() }
-                                    .create_string_object(string, self.classheap.unwrap()),
+                                unsafe { &mut *self.objectheap }
+                                    .create_string_object(string, self.classheap),
                             )
                         }
                         _ => unimplemented!(),
@@ -275,10 +275,7 @@ impl VM {
             "Print.println:(Ljava/lang/String;)V" => {
                 let object_body = match &self.stack[self.bp + 0] {
                     Variable::Object(object) => unsafe {
-                        &mut **(&*self.objectheap.unwrap())
-                            .object_map
-                            .get(&object.heap_id)
-                            .unwrap()
+                        &mut *(*self.objectheap).get_object(object.heap_id).unwrap()
                     },
                     _ => panic!(),
                 };
@@ -289,8 +286,8 @@ impl VM {
             "java/lang/String.valueOf:(I)Ljava/lang/String;" => {
                 let i = self.stack[self.bp + 0].get_int();
                 self.stack[self.bp + 0] = Variable::Object(
-                    unsafe { &mut *self.objectheap.unwrap() }
-                        .create_string_object(format!("{}", i), self.classheap.unwrap()),
+                    unsafe { &mut *self.objectheap }
+                        .create_string_object(format!("{}", i), self.classheap),
                 );
             }
             e => panic!("{:?}", e),
@@ -413,7 +410,7 @@ impl VM {
             .get_utf8()
             .unwrap();
 
-        let class = *unsafe { &*self.classheap.unwrap() }
+        let class = *unsafe { &*self.classheap }
             .class_map
             .get(class_name)
             .unwrap();
@@ -447,7 +444,7 @@ impl VM {
 
         let (virtual_class, _) = unsafe { &*class }.get_field(name, descriptor).unwrap();
 
-        let object = unsafe { &mut *self.objectheap.unwrap() }.create_object(virtual_class);
+        let object = unsafe { &mut *self.objectheap }.create_object(virtual_class);
 
         self.stack[self.bp + frame.sp] = Variable::Object(object);
         frame.sp += 1;
@@ -489,7 +486,7 @@ impl VM {
             .get_utf8()
             .unwrap();
 
-        let class = unsafe { &*self.classheap.unwrap() }
+        let class = unsafe { &*self.classheap }
             .class_map
             .get(class_name)
             .unwrap();

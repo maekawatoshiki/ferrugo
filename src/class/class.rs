@@ -45,9 +45,8 @@ impl Class {
         method_name: &str,
         method_descriptor: &str,
     ) -> Option<(GcType<Class>, MethodInfo)> {
-        let mut cur_class_ptr = *unsafe { &(*self.classheap.unwrap()) }
-            .class_map
-            .get(self.get_name().unwrap())
+        let mut cur_class_ptr = unsafe { &(*self.classheap.unwrap()) }
+            .get_class(self.get_name().unwrap())
             .unwrap();
 
         loop {
@@ -85,9 +84,8 @@ impl Class {
         field_name: &str,
         field_descriptor: &str,
     ) -> Option<(GcType<Class>, FieldInfo)> {
-        let mut cur_class_ptr = *unsafe { &(*self.classheap.unwrap()) }
-            .class_map
-            .get(self.get_name().unwrap())
+        let mut cur_class_ptr = unsafe { &(*self.classheap.unwrap()) }
+            .get_class(self.get_name().unwrap())
             .unwrap();
 
         loop {
@@ -122,11 +120,7 @@ impl Class {
 
     pub fn get_super_class(&self) -> Option<GcType<Class>> {
         let name = self.get_super_class_name()?;
-        if let Some(x) = unsafe { &(*self.classheap.unwrap()) }.class_map.get(name) {
-            Some(*x)
-        } else {
-            None
-        }
+        unsafe { &(*self.classheap.unwrap()) }.get_class(name)
     }
 
     pub fn get_object_field_count(&self) -> usize {

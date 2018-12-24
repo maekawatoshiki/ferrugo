@@ -50,6 +50,18 @@ fn run_file(filename: &str) {
         }};
     }
 
+    macro_rules! expect {
+        ($expr:expr, $msg:expr) => {{
+            match $expr {
+                Some(some) => some,
+                None => {
+                    eprintln!("{}: {}", Colour::Red.bold().paint("error"), $msg);
+                    return;
+                }
+            }
+        }};
+    }
+
     let class_ptr = try_load_class!(filename);
     try_load_class!("examples/java/lang/String.class");
     try_load_class!("examples/Print.class");
@@ -57,18 +69,17 @@ fn run_file(filename: &str) {
     // "java/lang/String.class"
     // "java/lang/Integer.class"
 
-    let (class, method) = unsafe { &*class_ptr }
-        .get_method("main", "([Ljava/lang/String;)V")
-        .unwrap();
+    let (class, method) = expect!(
+        unsafe { &*class_ptr }.get_method("main", "([Ljava/lang/String;)V"),
+        "Couldn't find method 'main(String[])'"
+    );
 
     let objectheap_ptr = gc::new(ObjectHeap::new());
     let objectheap = unsafe { &mut *objectheap_ptr };
 
     let object = objectheap.create_object(class_ptr);
 
-    let mut vm = VM::new();
-    vm.classheap = Some(classheap_ptr);
-    vm.objectheap = Some(objectheap_ptr);
+    let mut vm = VM::new(classheap, objectheap);
     vm.stack[0] = Variable::Object(object);
     vm.frame_stack[0].class = Some(class);
     vm.frame_stack[0].method_info = method;

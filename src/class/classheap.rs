@@ -14,10 +14,15 @@ impl ClassHeap {
         }
     }
 
+    pub fn get_class(&self, class_name: &str) -> Option<GcType<Class>> {
+        self.class_map
+            .get(class_name)
+            .and_then(|class| Some(*class))
+    }
+
     pub fn load_class(&mut self, class_name: &str, class: GcType<Class>) -> Option<()> {
         let class = unsafe { &mut *class };
         class.load_classfile(class_name);
-        self.class_map.insert("".to_string(), class);
         self.add_class(class);
         Some(())
     }
