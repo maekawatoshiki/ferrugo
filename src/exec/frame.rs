@@ -45,4 +45,18 @@ impl Variable {
             _ => panic!("what?"),
         }
     }
+
+    pub fn get_pointer(&self) -> GcType<u64> {
+        match self {
+            Variable::Pointer(ptr) => *ptr,
+            _ => panic!("hmm"),
+        }
+    }
+
+    pub fn get_object(&self) -> &Object {
+        match self {
+            Variable::Object(object) => object,
+            _ => panic!("huh"),
+        }
+    }
 }

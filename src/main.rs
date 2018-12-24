@@ -33,6 +33,7 @@ fn main() {
 
     let class1_ptr = gc::new(Class::new());
 
+    // TODO: Error handler
     if let None = classheap.load_class(filename, class1_ptr) {
         eprintln!(
             "{}: An error occurred while loading class file",
@@ -41,11 +42,11 @@ fn main() {
         return;
     }
     unsafe { (*class1_ptr).classheap = Some(classheap_ptr) };
-    // let class2_ptr = gc::new(Class::new());
-    // classheap
-    //     .load_class("java/io/PrintStream.class", class2_ptr)
-    //     .unwrap();
-    // unsafe { (*class2_ptr).classheap = Some(classheap_ptr) };
+    let class2_ptr = gc::new(Class::new());
+    classheap
+        .load_class("examples/java/lang/String.class", class2_ptr)
+        .unwrap();
+    unsafe { (*class2_ptr).classheap = Some(classheap_ptr) };
     // let class3_ptr = gc::new(Class::new());
     // classheap
     //     .load_class("java/lang/System.class", class3_ptr)

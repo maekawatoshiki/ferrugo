@@ -103,6 +103,16 @@ impl VM {
                     {
                         Constant::IntegerInfo { i } => Variable::Int(i),
                         Constant::FloatInfo { f } => Variable::Float(f),
+                        Constant::String { string_index } => {
+                            let string = unsafe { &*frame.class.unwrap() }
+                                .get_utf8_from_const_pool(string_index as usize)
+                                .unwrap()
+                                .to_owned();
+                            Variable::Object(
+                                unsafe { &mut *self.objectheap.unwrap() }
+                                    .create_string_object(string, self.classheap.unwrap()),
+                            )
+                        }
                         _ => unimplemented!(),
                     };
                     self.stack[self.bp + frame.sp] = val;
@@ -258,6 +268,20 @@ impl VM {
         match signature.as_str() {
             "Print.println:(I)V" => {
                 println!("{}", self.stack[self.bp + 0].get_int());
+            }
+            "Print.println:(Ljava/lang/String;)V" => {
+                let object_body = match &self.stack[self.bp + 0] {
+                    Variable::Object(object) => unsafe {
+                        &mut **(&*self.objectheap.unwrap())
+                            .object_map
+                            .get(&object.heap_id)
+                            .unwrap()
+                    },
+                    _ => panic!(),
+                };
+                println!("{}", unsafe {
+                    &*(object_body.variables[1].get_pointer() as GcType<String>)
+                });
             }
             _ => {}
         }

@@ -1,4 +1,4 @@
-use super::super::class::class::Class;
+use super::super::class::{class::Class, classheap::ClassHeap};
 use super::super::gc::{gc, gc::GcType};
 use super::frame::{Object, Variable};
 use std::collections::HashMap;
@@ -11,7 +11,7 @@ pub struct ObjectHeap {
 
 #[derive(Debug, Clone)]
 pub struct ObjectBody {
-    variables: Vec<Variable>,
+    pub variables: Vec<Variable>,
 }
 
 impl ObjectHeap {
@@ -41,6 +41,19 @@ impl ObjectHeap {
         self.id += 1;
 
         self.object_map.insert(object.heap_id, obj);
+
+        object
+    }
+
+    pub fn create_string_object(&mut self, string: String, classheap: GcType<ClassHeap>) -> Object {
+        let classheap = unsafe { &*classheap };
+
+        let class = *classheap.class_map.get("java/lang/String").unwrap();
+        let object = self.create_object(class);
+
+        let vars = *self.object_map.get(&object.heap_id).unwrap();
+        unsafe { &mut *vars }.variables[1] =
+            Variable::Pointer(Box::into_raw(Box::new(string)) as GcType<u64>);
 
         object
     }
