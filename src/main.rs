@@ -28,54 +28,43 @@ fn main() {
         None => return,
     };
 
+    run_file(filename);
+}
+
+fn run_file(filename: &str) {
     let classheap_ptr = gc::new(classheap::ClassHeap::new());
     let classheap = unsafe { &mut *classheap_ptr };
 
-    let class1_ptr = gc::new(Class::new());
-
-    // TODO: Error handler
-    if let None = classheap.load_class(filename, class1_ptr) {
-        eprintln!(
-            "{}: An error occurred while loading class file",
-            Colour::Red.bold().paint("error"),
-        );
-        return;
+    macro_rules! try_load_class {
+        ($filename:expr) => {{
+            let class_ptr = gc::new(Class::new());
+            if let None = classheap.load_class($filename, class_ptr) {
+                eprintln!(
+                    "{}: An error occurred while loading class file",
+                    Colour::Red.bold().paint("error"),
+                );
+                return;
+            }
+            unsafe { (*class_ptr).classheap = Some(classheap_ptr) };
+            class_ptr
+        }};
     }
-    unsafe { (*class1_ptr).classheap = Some(classheap_ptr) };
-    let class2_ptr = gc::new(Class::new());
-    classheap
-        .load_class("examples/java/lang/String.class", class2_ptr)
-        .unwrap();
-    unsafe { (*class2_ptr).classheap = Some(classheap_ptr) };
-    // let class3_ptr = gc::new(Class::new());
-    // classheap
-    //     .load_class("java/lang/System.class", class3_ptr)
-    //     .unwrap();
-    // unsafe { (*class3_ptr).classheap = Some(classheap_ptr) };
-    // let class4_ptr = gc::new(Class::new());
-    // classheap
-    //     .load_class("java/lang/String.class", class4_ptr)
-    //     .unwrap();
-    // unsafe { (*class4_ptr).classheap = Some(classheap_ptr) };
-    // let class5_ptr = gc::new(Class::new());
-    // classheap
-    //     .load_class("java/lang/Integer.class", class5_ptr)
-    //     .unwrap();
-    // unsafe { (*class5_ptr).classheap = Some(classheap_ptr) };
-    let class6_ptr = gc::new(Class::new());
-    classheap
-        .load_class("examples/Print.class", class6_ptr)
-        .unwrap();
-    unsafe { (*class6_ptr).classheap = Some(classheap_ptr) };
 
-    let (class, method) = unsafe { &*class1_ptr }
+    let class_ptr = try_load_class!(filename);
+    try_load_class!("examples/java/lang/String.class");
+    try_load_class!("examples/Print.class");
+    // "java/lang/System.class"
+    // "java/lang/String.class"
+    // "java/lang/Integer.class"
+
+    let (class, method) = unsafe { &*class_ptr }
         .get_method("main", "([Ljava/lang/String;)V")
         .unwrap();
 
     let objectheap_ptr = gc::new(ObjectHeap::new());
     let objectheap = unsafe { &mut *objectheap_ptr };
 
-    let object = objectheap.create_object(class1_ptr);
+    let object = objectheap.create_object(class_ptr);
 
     let mut vm = VM::new();
     vm.classheap = Some(classheap_ptr);
@@ -90,8 +79,10 @@ fn main() {
     } else {
         panic!()
     };
+
     println!("---- exec output begin ----");
     vm.run();
     println!("---- exec output end ------");
+
     println!("stack trace: {:?}", vm.stack);
 }
