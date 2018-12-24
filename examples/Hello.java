@@ -6,7 +6,8 @@ class Hello {
 
   public static void main(String[] args) {
     Print.println("Hello World");
-    // for (int i = 1; i <= 20; i++)
-    //   Print.println(fibo(i));
+    Print.println(123);
+    for (int i = 1; i <= 20; i++)
+      Print.println(fibo(i));
   }
 }

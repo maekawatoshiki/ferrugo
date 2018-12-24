@@ -108,6 +108,9 @@ impl VM {
                                 .get_utf8_from_const_pool(string_index as usize)
                                 .unwrap()
                                 .to_owned();
+                            // TODO: Constant string refers to constant pool,
+                            // so should not create a new string object.
+                            // "aaa" == "aaa" // => true
                             Variable::Object(
                                 unsafe { &mut *self.objectheap.unwrap() }
                                     .create_string_object(string, self.classheap.unwrap()),
@@ -128,7 +131,7 @@ impl VM {
                 }
                 Inst::astore_0 | Inst::astore_1 | Inst::astore_2 | Inst::astore_3 => {
                     let mut frame = frame!();
-                    self.stack[self.bp + cur_code as usize - Inst::astore_0 as usize] =
+                    self.stack[self.bp + (cur_code as usize - Inst::astore_0 as usize)] =
                         self.stack[self.bp + frame.sp - 1].clone();
                     frame.sp -= 1;
                     frame.pc += 1;
@@ -283,7 +286,14 @@ impl VM {
                     &*(object_body.variables[1].get_pointer() as GcType<String>)
                 });
             }
-            _ => {}
+            "java/lang/String.valueOf:(I)Ljava/lang/String;" => {
+                let i = self.stack[self.bp + 0].get_int();
+                self.stack[self.bp + 0] = Variable::Object(
+                    unsafe { &mut *self.objectheap.unwrap() }
+                        .create_string_object(format!("{}", i), self.classheap.unwrap()),
+                );
+            }
+            e => panic!("{:?}", e),
         }
     }
 
@@ -605,10 +615,10 @@ mod Inst {
     pub const iload_2:      u8 = 28;
     pub const iload_3:      u8 = 29;
     pub const bipush:       u8 = 16;
-    pub const astore_0:     u8 = 76;
-    pub const astore_1:     u8 = 77;
-    pub const astore_2:     u8 = 78;
-    pub const astore_3:     u8 = 79;
+    pub const astore_0:     u8 = 75;
+    pub const astore_1:     u8 = 76;
+    pub const astore_2:     u8 = 77;
+    pub const astore_3:     u8 = 78;
     pub const pop:          u8 = 87;
     pub const dup:          u8 = 89;
     pub const iadd:         u8 = 96;

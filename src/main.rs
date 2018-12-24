@@ -90,7 +90,8 @@ fn main() {
     } else {
         panic!()
     };
-    println!("---- exec output ----");
+    println!("---- exec output begin ----");
     vm.run();
-    // println!("stack top: {:?}", vm.stack);
+    println!("---- exec output end ------");
+    println!("stack trace: {:?}", vm.stack);
 }
