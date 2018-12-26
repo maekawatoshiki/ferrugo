@@ -179,8 +179,6 @@ impl VM {
                 }
                 Inst::dadd => {
                     let mut frame = frame!();
-                    println!("{:?}", self.stack[self.bp + frame.sp - 2]);
-                    println!("{:?}", self.stack[self.bp + frame.sp - 1]);
                     self.stack[self.bp + frame.sp - 2] = Variable::Double(
                         self.stack[self.bp + frame.sp - 2].get_double()
                             + self.stack[self.bp + frame.sp - 1].get_double(),
