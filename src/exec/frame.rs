@@ -47,6 +47,13 @@ impl Variable {
         }
     }
 
+    pub fn get_double(&self) -> f64 {
+        match self {
+            Variable::Double(f) => *f,
+            _ => panic!("what?"),
+        }
+    }
+
     pub fn get_pointer(&self) -> GcType<u64> {
         match self {
             Variable::Pointer(ptr) => *ptr,

@@ -89,6 +89,13 @@ impl VM {
                     frame.sp += 1;
                     frame.pc += 1;
                 }
+                Inst::dload_0 | Inst::dload_1 | Inst::dload_2 | Inst::dload_3 => {
+                    let mut frame = frame!();
+                    self.stack[self.bp + frame.sp] =
+                        self.stack[self.bp + cur_code as usize - Inst::dload_0 as usize].clone();
+                    frame.sp += 1;
+                    frame.pc += 1;
+                }
                 Inst::sipush => {
                     let mut frame = frame!();
                     let val = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
@@ -127,27 +134,12 @@ impl VM {
                     let index = ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize;
                     let val = match unsafe { &*frame.class.unwrap() }.classfile.constant_pool[index]
                     {
-                        Constant::IntegerInfo { i } => Variable::Int(i),
-                        Constant::FloatInfo { f } => Variable::Float(f),
-                        Constant::String { string_index } => {
-                            let string = unsafe { &*frame.class.unwrap() }
-                                .get_utf8_from_const_pool(string_index as usize)
-                                .unwrap()
-                                .to_owned();
-                            // TODO: Constant string refers to constant pool,
-                            // so should not create a new string object.
-                            // "aaa" == "aaa" // => true
-                            Variable::Object(
-                                unsafe { &mut *self.objectheap }
-                                    .create_string_object(string, self.classheap),
-                            )
-                        }
                         Constant::DoubleInfo { f } => Variable::Double(f),
                         _ => unimplemented!(),
                     };
                     self.stack[self.bp + frame.sp] = val;
                     frame.sp += 1;
-                    frame.pc += 2;
+                    frame.pc += 3;
                 }
                 Inst::aload_0 | Inst::aload_1 | Inst::aload_2 | Inst::aload_3 => {
                     let mut frame = frame!();
@@ -181,6 +173,17 @@ impl VM {
                     self.stack[self.bp + frame.sp - 2] = Variable::Int(
                         self.stack[self.bp + frame.sp - 2].get_int()
                             + self.stack[self.bp + frame.sp - 1].get_int(),
+                    );
+                    frame.sp -= 1;
+                    frame.pc += 1;
+                }
+                Inst::dadd => {
+                    let mut frame = frame!();
+                    println!("{:?}", self.stack[self.bp + frame.sp - 2]);
+                    println!("{:?}", self.stack[self.bp + frame.sp - 1]);
+                    self.stack[self.bp + frame.sp - 2] = Variable::Double(
+                        self.stack[self.bp + frame.sp - 2].get_double()
+                            + self.stack[self.bp + frame.sp - 1].get_double(),
                     );
                     frame.sp -= 1;
                     frame.pc += 1;
@@ -631,6 +634,7 @@ mod Inst {
     pub const iconst_3:     u8 = 6;
     pub const iconst_4:     u8 = 7;
     pub const iconst_5:     u8 = 8;
+    pub const bipush:       u8 = 16;
     pub const sipush:       u8 = 17;
     pub const ldc:          u8 = 18;
     pub const ldc2_w:       u8 = 20;
@@ -646,7 +650,10 @@ mod Inst {
     pub const iload_1:      u8 = 27;
     pub const iload_2:      u8 = 28;
     pub const iload_3:      u8 = 29;
-    pub const bipush:       u8 = 16;
+    pub const dload_0:      u8 = 38;
+    pub const dload_1:      u8 = 39;
+    pub const dload_2:      u8 = 40;
+    pub const dload_3:      u8 = 41;
     pub const dstore_0:     u8 = 71;
     pub const dstore_1:     u8 = 72;
     pub const dstore_2:     u8 = 73;
@@ -658,6 +665,7 @@ mod Inst {
     pub const pop:          u8 = 87;
     pub const dup:          u8 = 89;
     pub const iadd:         u8 = 96;
+    pub const dadd:         u8 = 99;
     pub const isub:         u8 = 100;
     pub const iinc:         u8 = 132;
     pub const if_icmpge:    u8 = 162;

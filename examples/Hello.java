@@ -5,6 +5,8 @@ class Hello {
   }
 
   public static void main(String[] args) {
+    double f = 2.3f;
+    f += 1.2f;
     Print.println("Hello World");
     Print.println(123);
     for (int i = 1; i <= 20; i++)
