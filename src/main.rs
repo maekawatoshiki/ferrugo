@@ -137,5 +137,5 @@ fn run_file(filename: &str) {
     vm.run();
     println!("---- exec output end ------");
 
-    println!("stack trace: {:?}", vm.stack);
+    println!("stack trace: {:?}", &vm.stack[0..16]);
 }

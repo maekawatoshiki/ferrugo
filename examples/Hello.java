@@ -21,11 +21,9 @@ class Hello {
   }
 
   public static void main(String[] args) {
-    System.out.println("hello world");
-    // System.out.println(123456789);
-    // Print.println("Hello World");
-    // Print.println(123);
-    // calc_pi();
+    System.out.println(123);
+    System.out.println(123456789);
+    System.out.println(calc_pi());
     for (int i = 1; i <= 20; i++)
       System.out.println(fibo(i));
   }
