@@ -304,11 +304,11 @@ impl VM {
         let signature = format!("{}.{}:{}", class_name, method_name, descriptor);
 
         match signature.as_str() {
-            "Print.println:(I)V" => {
-                println!("{}", self.stack[self.bp + 0].get_int());
+            "java/io/PrintStream.println:(I)V" => {
+                println!("{}", self.stack[self.bp + 1].get_int());
             }
-            "Print.println:(Ljava/lang/String;)V" => {
-                let object_body = match &self.stack[self.bp + 0] {
+            "java/io/PrintStream.println:(Ljava/lang/String;)V" => {
+                let object_body = match &self.stack[self.bp + 1] {
                     Variable::Object(object) => unsafe {
                         &mut *(*self.objectheap).get_object(object.heap_id).unwrap()
                     },
@@ -318,6 +318,7 @@ impl VM {
                     &*(object_body.variables[1].get_pointer() as GcType<String>)
                 });
             }
+            // static
             "java/lang/String.valueOf:(I)Ljava/lang/String;" => {
                 let i = self.stack[self.bp + 0].get_int();
                 self.stack[self.bp + 0] = Variable::Object(

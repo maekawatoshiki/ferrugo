@@ -3,5 +3,5 @@
 #![feature(repeat_generic_slice)]
 
 pub mod class;
-pub mod gc;
 pub mod exec;
+pub mod gc;

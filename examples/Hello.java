@@ -4,12 +4,29 @@ class Hello {
     else return fibo(n - 1) + fibo(n - 2);
   }
 
+  public static double arctan(double x) {
+    double ret = 0.0;
+    double sig = x;
+    double sqx = x * x;
+    for (int i = 0; sig != 0.0; i++) {
+      ret += sig / (double) (i + i + 1);
+      sig = -sig * sqx;
+    }
+    return ret;
+  }
+
+  public static double calc_pi() {
+    double pi = 16.0 * arctan(1.0 / 5.0) - 4.0 * arctan(1.0 / 239.0);
+    return pi;
+  }
+
   public static void main(String[] args) {
-    double f = 2.3f;
-    f += 1.2f;
-    Print.println("Hello World");
-    Print.println(123);
-    for (int i = 1; i <= 20; i++)
-      Print.println(fibo(i));
+    System.out.println("hello world");
+    // System.out.println(123456789);
+    // Print.println("Hello World");
+    // Print.println(123);
+    // calc_pi();
+    // for (int i = 1; i <= 20; i++)
+    //   Print.println(fibo(i));
   }
 }

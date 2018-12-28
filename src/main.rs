@@ -64,7 +64,8 @@ fn run_file(filename: &str) {
 
     let class_ptr = try_load_class!(filename);
     try_load_class!("examples/java/lang/String.class");
-    try_load_class!("examples/Print.class");
+    try_load_class!("examples/java/lang/System.class");
+    try_load_class!("examples/java/io/PrintStream.class");
     // "java/lang/System.class"
     // "java/lang/String.class"
     // "java/lang/Integer.class"
