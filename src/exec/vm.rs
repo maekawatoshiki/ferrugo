@@ -474,22 +474,14 @@ impl VM {
         let name = frame_class.classfile.constant_pool[method.name_index as usize]
             .get_utf8()
             .unwrap();
-        let descriptor = frame_class.classfile.constant_pool[method.descriptor_index as usize]
-            .get_utf8()
-            .unwrap();
-
-        // println!("getstatic1: {}.{}:{}", class_name, name, descriptor);
-        // println!("{:?}", unsafe { &*(&*class).classheap.unwrap() }.class_map);
-        //
-        // println!("class name {}", class_name);
+        // TODO: ``descriptor`` will be necessary to verify the field's type.
+        // let descriptor = frame_class.classfile.constant_pool[method.descriptor_index as usize]
+        //     .get_utf8()
+        //     .unwrap();
 
         let object = unsafe { &*class }
             .get_static_variable(name.as_str())
             .unwrap();
-
-        // let (virtual_class, _) = unsafe { &*class }.get_field(name, descriptor).unwrap();
-        //
-        // let object = unsafe { &mut *self.objectheap }.create_object(virtual_class);
 
         self.stack[self.bp + frame.sp] = object;
         frame.sp += 1;
@@ -555,9 +547,10 @@ impl VM {
         let name = frame_class.classfile.constant_pool[method.name_index as usize]
             .get_utf8()
             .unwrap();
-        let descriptor = frame_class.classfile.constant_pool[method.descriptor_index as usize]
-            .get_utf8()
-            .unwrap();
+        // TODO: ``descriptor`` will be necessary to verify the field's type.
+        // let descriptor = frame_class.classfile.constant_pool[method.descriptor_index as usize]
+        //     .get_utf8()
+        //     .unwrap();
 
         let val = self.stack[self.bp + frame.sp - 1].clone();
         frame.sp -= 1;
@@ -601,7 +594,6 @@ impl VM {
             .get_utf8()
             .unwrap();
 
-        println!("{}", class_name);
         let class = unsafe { &*self.classheap }
             .class_map
             .get(class_name)
@@ -789,11 +781,11 @@ mod Inst {
     pub const return_:      u8 = 177;
     pub const getstatic:    u8 = 178;
     pub const putstatic:    u8 = 179;
-    pub const getfield:     u8 = 180;
+    // pub const getfield:     u8 = 180;
     pub const invokevirtual:u8 = 182;
     pub const invokespecial:u8 = 183;
     pub const invokestatic: u8 = 184;
     pub const new:          u8 = 187;
     pub const monitorenter: u8 = 194;
-    pub const ifnonnull:    u8 = 199;
+    // pub const ifnonnull:    u8 = 199;
 }

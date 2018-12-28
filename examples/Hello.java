@@ -26,7 +26,7 @@ class Hello {
     // Print.println("Hello World");
     // Print.println(123);
     // calc_pi();
-    // for (int i = 1; i <= 20; i++)
-    //   Print.println(fibo(i));
+    for (int i = 1; i <= 20; i++)
+      System.out.println(fibo(i));
   }
 }
