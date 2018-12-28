@@ -219,6 +219,10 @@ impl VM {
                     self.run_invoke_static(false);
                     frame!().pc += 3;
                 }
+                Inst::new => {
+                    self.run_new();
+                    frame!().pc += 3;
+                }
                 Inst::pop => {
                     let mut frame = frame!();
                     frame.sp -= 1;
@@ -279,6 +283,7 @@ impl VM {
                     return Inst::return_;
                 }
                 Inst::getstatic => self.run_get_static(),
+                Inst::putstatic => self.run_put_static(),
                 // Inst::getfield => self.run_get_field(),
                 Inst::monitorenter => {
                     // TODO: Implement
@@ -478,12 +483,86 @@ impl VM {
         //
         // println!("class name {}", class_name);
 
-        let (virtual_class, _) = unsafe { &*class }.get_field(name, descriptor).unwrap();
+        let object = unsafe { &*class }
+            .get_static_variable(name.as_str())
+            .unwrap();
 
-        let object = unsafe { &mut *self.objectheap }.create_object(virtual_class);
+        // let (virtual_class, _) = unsafe { &*class }.get_field(name, descriptor).unwrap();
+        //
+        // let object = unsafe { &mut *self.objectheap }.create_object(virtual_class);
 
-        self.stack[self.bp + frame.sp] = Variable::Object(object);
+        self.stack[self.bp + frame.sp] = object;
         frame.sp += 1;
+    }
+
+    fn run_put_static(&mut self) {
+        #[rustfmt::skip]
+        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
+
+        let frame = frame!();
+        let frame_class = unsafe { &*frame.class.unwrap() };
+        let code =
+            if let Some(Attribute::Code { code, .. }) = frame.method_info.get_code_attribute() {
+                code.clone()
+            } else {
+                panic!()
+            };
+        let index = ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize;
+        frame.pc += 3;
+
+        let const_pool = frame_class.classfile.constant_pool[index].clone();
+        let (class_index, name_and_type_index) = if let Constant::FieldrefInfo {
+            class_index,
+            name_and_type_index,
+        } = const_pool
+        {
+            (class_index as usize, name_and_type_index as usize)
+        } else {
+            panic!()
+        };
+
+        let const_pool = frame_class.classfile.constant_pool[class_index as usize].clone();
+        let name_index = if let Constant::ClassInfo { name_index } = const_pool {
+            name_index
+        } else {
+            panic!()
+        };
+
+        let class_name = frame_class.classfile.constant_pool[name_index as usize]
+            .get_utf8()
+            .unwrap();
+
+        let class = *unsafe { &*self.classheap }
+            .class_map
+            .get(class_name)
+            .unwrap();
+
+        let const_pool = frame_class.classfile.constant_pool[name_and_type_index].clone();
+
+        let mut method = MethodInfo::new();
+
+        if let Constant::NameAndTypeInfo {
+            name_index,
+            descriptor_index,
+        } = const_pool
+        {
+            method.name_index = name_index;
+            method.descriptor_index = descriptor_index;
+        }
+
+        method.access_flags = 0;
+
+        let name = frame_class.classfile.constant_pool[method.name_index as usize]
+            .get_utf8()
+            .unwrap();
+        let descriptor = frame_class.classfile.constant_pool[method.descriptor_index as usize]
+            .get_utf8()
+            .unwrap();
+
+        let val = self.stack[self.bp + frame.sp - 1].clone();
+        frame.sp -= 1;
+
+        unsafe { &mut *class }.put_static_variable(name.as_str(), val)
     }
 
     fn run_invoke_static(&mut self, is_invoke_static: bool) {
@@ -522,6 +601,7 @@ impl VM {
             .get_utf8()
             .unwrap();
 
+        println!("{}", class_name);
         let class = unsafe { &*self.classheap }
             .class_map
             .get(class_name)
@@ -619,6 +699,41 @@ impl VM {
         self.bp -= former_sp - params_num;
         self.frame_stack.pop();
     }
+
+    fn run_new(&mut self) {
+        #[rustfmt::skip]
+        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
+
+        let frame = frame!();
+        let frame_class = unsafe { &*frame.class.unwrap() };
+        let class_index =
+            if let Some(Attribute::Code { code, .. }) = frame.method_info.get_code_attribute() {
+                ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
+            } else {
+                panic!()
+            };
+        let const_pool = frame_class.classfile.constant_pool[class_index].clone();
+
+        let name_index = if let Constant::ClassInfo { name_index } = const_pool {
+            name_index
+        } else {
+            panic!()
+        };
+
+        let class_name = frame_class.classfile.constant_pool[name_index as usize]
+            .get_utf8()
+            .unwrap();
+
+        println!("> {}", class_name);
+
+        let class = unsafe { &*self.classheap }.get_class(class_name).unwrap();
+
+        let object = unsafe { &mut *self.objectheap }.create_object(class);
+
+        self.stack[self.bp + frame.sp] = Variable::Object(object);
+
+        frame.sp += 1;
+    }
 }
 
 #[rustfmt::skip]
@@ -673,10 +788,12 @@ mod Inst {
     pub const ireturn:      u8 = 172;
     pub const return_:      u8 = 177;
     pub const getstatic:    u8 = 178;
+    pub const putstatic:    u8 = 179;
     pub const getfield:     u8 = 180;
     pub const invokevirtual:u8 = 182;
     pub const invokespecial:u8 = 183;
     pub const invokestatic: u8 = 184;
+    pub const new:          u8 = 187;
     pub const monitorenter: u8 = 194;
     pub const ifnonnull:    u8 = 199;
 }

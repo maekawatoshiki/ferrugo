@@ -1,12 +1,15 @@
+use super::super::exec::frame::Variable;
 use super::super::gc::gc::GcType;
 use super::classfile::read::ClassFileReader;
 use super::classfile::{classfile::ClassFile, field::FieldInfo, method::MethodInfo};
 use super::classheap::ClassHeap;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct Class {
     pub classfile: ClassFile,
     pub classheap: Option<GcType<ClassHeap>>,
+    pub static_variables: HashMap<String, Variable>,
 }
 
 impl Class {
@@ -14,7 +17,18 @@ impl Class {
         Class {
             classfile: ClassFile::new(),
             classheap: None,
+            static_variables: HashMap::new(),
         }
+    }
+
+    pub fn get_static_variable(&self, name: &str) -> Option<Variable> {
+        self.static_variables
+            .get(name)
+            .and_then(|var| Some(var.clone()))
+    }
+
+    pub fn put_static_variable(&mut self, name: &str, val: Variable) {
+        self.static_variables.insert(name.to_string(), val);
     }
 
     pub fn load_classfile(&mut self, filename: &str) -> Option<()> {

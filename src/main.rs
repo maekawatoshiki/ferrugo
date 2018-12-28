@@ -35,21 +35,6 @@ fn run_file(filename: &str) {
     let classheap_ptr = gc::new(classheap::ClassHeap::new());
     let classheap = unsafe { &mut *classheap_ptr };
 
-    macro_rules! try_load_class {
-        ($filename:expr) => {{
-            let class_ptr = gc::new(Class::new());
-            if let None = classheap.load_class($filename, class_ptr) {
-                eprintln!(
-                    "{}: An error occurred while loading class file",
-                    Colour::Red.bold().paint("error"),
-                );
-                return;
-            }
-            unsafe { (*class_ptr).classheap = Some(classheap_ptr) };
-            class_ptr
-        }};
-    }
-
     macro_rules! expect {
         ($expr:expr, $msg:expr) => {{
             match $expr {
@@ -62,10 +47,69 @@ fn run_file(filename: &str) {
         }};
     }
 
-    let class_ptr = try_load_class!(filename);
+    let objectheap_ptr = gc::new(ObjectHeap::new());
+    let objectheap = unsafe { &mut *objectheap_ptr };
+
+    macro_rules! try_load_class {
+        ($filename:expr) => {{
+            let class_ptr = gc::new(Class::new());
+            if let None = classheap.load_class($filename, class_ptr) {
+                eprintln!(
+                    "{}: An error occurred while loading class file",
+                    Colour::Red.bold().paint("error"),
+                );
+                return;
+            }
+            unsafe { (*class_ptr).classheap = Some(classheap_ptr) };
+            // if $filename == "examples/java/lang/Object.class" {
+            {
+                let mut vm = VM::new(classheap, objectheap);
+                let object = objectheap.create_object(class_ptr);
+                let (class, method) = expect!(
+                    unsafe { &*class_ptr }.get_method("<init>", "()V"),
+                    "Couldn't find <init>"
+                );
+                vm.stack[0] = Variable::Object(object);
+                vm.frame_stack[0].class = Some(class);
+                vm.frame_stack[0].method_info = method;
+                vm.frame_stack[0].sp = if let Some(Attribute::Code { max_locals, .. }) =
+                    vm.frame_stack[0].method_info.get_code_attribute()
+                {
+                    *max_locals as usize
+                } else {
+                    panic!()
+                };
+
+                vm.run();
+
+                if let Some((class, method)) = unsafe { &*class_ptr }.get_method("<clinit>", "()V")
+                {
+                    println!("static initialize");
+                    vm.bp = 0;
+                    vm.frame_stack[0].pc = 0;
+                    vm.frame_stack[0].class = Some(class);
+                    vm.frame_stack[0].method_info = method;
+                    vm.frame_stack[0].sp = if let Some(Attribute::Code { max_locals, .. }) =
+                        vm.frame_stack[0].method_info.get_code_attribute()
+                    {
+                        *max_locals as usize
+                    } else {
+                        panic!()
+                    };
+
+                    vm.run();
+                }
+            }
+            // }
+            class_ptr
+        }};
+    }
+
+    try_load_class!("examples/java/lang/Object.class");
+    try_load_class!("examples/java/io/PrintStream.class");
     try_load_class!("examples/java/lang/String.class");
     try_load_class!("examples/java/lang/System.class");
-    try_load_class!("examples/java/io/PrintStream.class");
+    let class_ptr = try_load_class!(filename);
     // "java/lang/System.class"
     // "java/lang/String.class"
     // "java/lang/Integer.class"
@@ -74,9 +118,6 @@ fn run_file(filename: &str) {
         unsafe { &*class_ptr }.get_method("main", "([Ljava/lang/String;)V"),
         "Couldn't find method 'main(String[])'"
     );
-
-    let objectheap_ptr = gc::new(ObjectHeap::new());
-    let objectheap = unsafe { &mut *objectheap_ptr };
 
     let object = objectheap.create_object(class_ptr);
 
