@@ -10,16 +10,35 @@ Ferrugo is a JVM implementation written in Rust.
 
 *JVM in Rust. Sounds great, isn't it?*
 
-# Try it
+# Building from Source
 
-1. Build
+## Building on Linux
 
-```
-$ cargo run --release
+1. Install Rust
+
+  Run the command below and follow the onscreen instructions. 
+
+```sh
+curl https://sh.rustup.rs -sSf | sh
 ```
 
-2. Try an example
+2. Use Rust Nightly
 
+```sh
+rustup override set nightly
 ```
-$ cargo run examples/Hello.class
+3. Test 
+
+```sh
+cargo test
 ```
+
+5. Build and Run
+
+```sh
+cargo run --release example/Hello.class
+```
+
+## Building on other platforms
+
+I don't know. Maybe almost the same as Linux.
