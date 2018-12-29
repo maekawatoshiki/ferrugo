@@ -415,6 +415,7 @@ impl VM {
             .get_utf8_from_const_pool(frame.method_info.descriptor_index as usize)
             .unwrap();
         let signature = format!("{}.{}:{}", class_name, method_name, descriptor);
+        let objectheap = unsafe { &mut *self.objectheap };
 
         match signature.as_str() {
             "java/io/PrintStream.println:(I)V" => {
@@ -426,7 +427,7 @@ impl VM {
             "java/io/PrintStream.println:(Ljava/lang/String;)V" => {
                 let object_body = match &self.stack[self.bp + 1] {
                     Variable::Object(object) => unsafe {
-                        &mut *(*self.objectheap).get_object(object.heap_id).unwrap()
+                        &mut *objectheap.get_object(object.heap_id).unwrap()
                     },
                     _ => panic!(),
                 };
@@ -438,9 +439,71 @@ impl VM {
             "java/lang/String.valueOf:(I)Ljava/lang/String;" => {
                 let i = self.stack[self.bp + 0].get_int();
                 self.stack[self.bp + 0] = Variable::Object(
-                    unsafe { &mut *self.objectheap }
-                        .create_string_object(format!("{}", i), self.classheap),
+                    objectheap.create_string_object(format!("{}", i), self.classheap),
                 );
+            }
+            "java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;" => {
+                let string_builder = match &self.stack[self.bp + 0] {
+                    Variable::Object(object) => unsafe {
+                        &mut *objectheap.get_object(object.heap_id).unwrap()
+                    },
+                    _ => panic!(),
+                };
+                let append_str = match &self.stack[self.bp + frame.sp - 1] {
+                    Variable::Object(object) => unsafe {
+                        let string = &mut *objectheap.get_object(object.heap_id).unwrap();
+                        &*(string.variables.get("str").unwrap().get_pointer() as GcType<String>)
+                    },
+                    _ => panic!(),
+                };
+                let string = {
+                    let heap_id = string_builder
+                        .variables
+                        .entry("str".to_string())
+                        .or_insert(Variable::Object(
+                            objectheap.create_string_object("".to_string(), self.classheap),
+                        ))
+                        .get_object()
+                        .heap_id;
+                    unsafe {
+                        let string = &mut *objectheap.get_object(heap_id).unwrap();
+                        &mut *(string.variables.get_mut("str").unwrap().get_pointer()
+                            as GcType<String>)
+                    }
+                };
+                string.push_str(append_str);
+            }
+            "java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;" => {
+                let string_builder = match &self.stack[self.bp + 0] {
+                    Variable::Object(object) => unsafe {
+                        &mut *objectheap.get_object(object.heap_id).unwrap()
+                    },
+                    _ => panic!(),
+                };
+                let append_int = self.stack[self.bp + frame.sp - 1].get_int();
+                let string = unsafe {
+                    let heap_id = string_builder
+                        .variables
+                        .entry("str".to_string())
+                        .or_insert(Variable::Object(
+                            objectheap.create_string_object("".to_string(), self.classheap),
+                        ))
+                        .get_object()
+                        .heap_id;
+                    let string = &mut *objectheap.get_object(heap_id).unwrap();
+                    &mut *(string.variables.get_mut("str").unwrap().get_pointer() as GcType<String>)
+                };
+                string.push_str(format!("{}", append_int).as_str());
+            }
+            "java/lang/StringBuilder.toString:()Ljava/lang/String;" => {
+                let string_builder = match &self.stack[self.bp + 0] {
+                    Variable::Object(object) => unsafe {
+                        &mut *objectheap.get_object(object.heap_id).unwrap()
+                    },
+                    _ => panic!(),
+                };
+                let s = string_builder.variables.get("str").unwrap().clone();
+                self.stack[self.bp + 0] = s;
             }
             e => panic!("{:?}", e),
         }

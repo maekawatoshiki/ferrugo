@@ -1,5 +1,8 @@
 class Point {
   int x, y;
+  public void show() {
+    System.out.println("x = " + x + ", y = " + y);
+  }
 }
 
 class Hello {
@@ -35,7 +38,6 @@ class Hello {
     Point p = new Point();
     p.x = 2;
     p.y = 3;
-    System.out.println(p.x);
-    System.out.println(p.y);
+    p.show();
   }
 }
