@@ -36,7 +36,7 @@ cargo test
 4. Build and Run
 
 ```sh
-cargo run --release example/Hello.class
+cargo run --release examples/Hello.class
 ```
 
 ## Building on other platforms
