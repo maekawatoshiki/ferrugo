@@ -23,7 +23,7 @@ impl ObjectHeap {
         }
     }
 
-    pub fn get_object(&mut self, heap_id: usize) -> Option<GcType<ObjectBody>> {
+    pub fn get_object(&self, heap_id: usize) -> Option<GcType<ObjectBody>> {
         self.object_map
             .get(&heap_id)
             .and_then(|object_body| Some(*object_body))

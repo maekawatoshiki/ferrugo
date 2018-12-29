@@ -1,10 +1,12 @@
+use super::super::class::class::Class;
 use super::super::class::classfile::attribute::Attribute;
 use super::super::class::classfile::constant::Constant;
 use super::super::class::classfile::method::MethodInfo;
 use super::super::class::classheap::ClassHeap;
-use super::super::gc::gc::GcType;
-use super::frame::{Frame, Variable};
+use super::super::gc::{gc, gc::GcType};
+use super::frame::{Frame, Object, Variable};
 use super::objectheap::ObjectHeap;
+use ansi_term::Colour;
 
 #[derive(Debug)]
 pub struct VM {
@@ -389,7 +391,8 @@ impl VM {
                 }
                 Inst::getstatic => self.run_get_static(),
                 Inst::putstatic => self.run_put_static(),
-                // Inst::getfield => self.run_get_field(),
+                Inst::getfield => self.run_get_field(),
+                Inst::putfield => self.run_put_field(),
                 Inst::monitorenter => {
                     // TODO: Implement
                     let mut frame = frame!();
@@ -443,6 +446,112 @@ impl VM {
         }
     }
 
+    fn run_get_field(&mut self) {
+        #[rustfmt::skip]
+        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
+
+        let frame = frame!();
+        let frame_class = unsafe { &*frame.class.unwrap() };
+        let index =
+            if let Some(Attribute::Code { code, .. }) = frame.method_info.get_code_attribute() {
+                ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
+            } else {
+                panic!()
+            };
+        frame.pc += 3;
+
+        let objectref =
+            if let Variable::Object(Object { heap_id }) = self.stack[self.bp + frame.sp - 1] {
+                unsafe { &*self.objectheap }.get_object(heap_id).unwrap()
+            } else {
+                panic!()
+            };
+        frame.sp -= 1;
+
+        let const_pool = &frame_class.classfile.constant_pool[index];
+        let name_and_type_index = if let Constant::FieldrefInfo {
+            name_and_type_index,
+            ..
+        } = const_pool
+        {
+            *name_and_type_index as usize
+        } else {
+            panic!()
+        };
+
+        let const_pool = &frame_class.classfile.constant_pool[name_and_type_index];
+
+        let name_index = if let Constant::NameAndTypeInfo {
+            name_index,..
+            // descriptor_index,
+        } = const_pool
+        {
+            *name_index as usize
+        }else {panic!()};
+
+        let name = frame_class.classfile.constant_pool[name_index]
+            .get_utf8()
+            .unwrap();
+
+        let value = unsafe { &mut *objectref }.variables.get(name).unwrap();
+
+        self.stack[self.bp + frame.sp] = value.clone();
+        frame.sp += 1;
+    }
+
+    fn run_put_field(&mut self) {
+        #[rustfmt::skip]
+        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
+
+        let frame = frame!();
+        let frame_class = unsafe { &*frame.class.unwrap() };
+        let index =
+            if let Some(Attribute::Code { code, .. }) = frame.method_info.get_code_attribute() {
+                ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
+            } else {
+                panic!()
+            };
+        frame.pc += 3;
+
+        let objectref =
+            if let Variable::Object(Object { heap_id }) = self.stack[self.bp + frame.sp - 2] {
+                unsafe { &*self.objectheap }.get_object(heap_id).unwrap()
+            } else {
+                panic!()
+            };
+        let value = self.stack[self.bp + frame.sp - 1].clone();
+        frame.sp -= 2;
+
+        let const_pool = &frame_class.classfile.constant_pool[index];
+        let name_and_type_index = if let Constant::FieldrefInfo {
+            name_and_type_index,
+            ..
+        } = const_pool
+        {
+            *name_and_type_index as usize
+        } else {
+            panic!()
+        };
+
+        let const_pool = &frame_class.classfile.constant_pool[name_and_type_index];
+
+        let name_index = if let Constant::NameAndTypeInfo {
+            name_index,..
+            // descriptor_index,
+        } = const_pool
+        {
+            *name_index as usize
+        }else {panic!()};
+
+        let name = frame_class.classfile.constant_pool[name_index]
+            .get_utf8()
+            .unwrap();
+
+        unsafe { &mut *objectref }
+            .variables
+            .insert(name.clone(), value);
+    }
+
     fn run_get_static(&mut self) {
         #[rustfmt::skip]
         macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
@@ -480,10 +589,7 @@ impl VM {
             .get_utf8()
             .unwrap();
 
-        let class = *unsafe { &*self.classheap }
-            .class_map
-            .get(class_name)
-            .unwrap();
+        let class = load_class(self.classheap, self.objectheap, class_name);
 
         let const_pool = frame_class.classfile.constant_pool[name_and_type_index].clone();
 
@@ -623,10 +729,7 @@ impl VM {
             .get_utf8()
             .unwrap();
 
-        let class = unsafe { &*self.classheap }
-            .class_map
-            .get(class_name)
-            .unwrap();
+        let class = load_class(self.classheap, self.objectheap, class_name);
 
         let const_pool = frame_class.classfile.constant_pool[name_and_type_index as usize].clone();
 
@@ -652,7 +755,7 @@ impl VM {
 
         // println!("invoke: {}.{}:{}", class_name, name, descriptor);
 
-        let (virtual_class, method2) = unsafe { &**class }.get_method(name, descriptor).unwrap();
+        let (virtual_class, method2) = unsafe { &*class }.get_method(name, descriptor).unwrap();
 
         let former_sp = frame.sp as usize;
 
@@ -752,9 +855,9 @@ impl VM {
             .get_utf8()
             .unwrap();
 
-        // println!("> {}", class_name);
+        println!("> {}", class_name);
 
-        let class = unsafe { &*self.classheap }.get_class(class_name).unwrap();
+        let class = load_class(self.classheap, self.objectheap, class_name);
 
         let object = unsafe { &mut *self.objectheap }.create_object(class);
 
@@ -762,6 +865,83 @@ impl VM {
 
         frame.sp += 1;
     }
+}
+
+macro_rules! expect {
+    ($expr:expr, $msg:expr) => {{
+        match $expr {
+            Some(some) => some,
+            None => {
+                eprintln!("{}: {}", Colour::Red.bold().paint("error"), $msg);
+                ::std::process::abort();
+            }
+        }
+    }};
+}
+
+pub fn load_class_with_filename(
+    classheap: GcType<ClassHeap>,
+    objectheap: GcType<ObjectHeap>,
+    filename: &str,
+) -> GcType<Class> {
+    let class_ptr = gc::new(Class::new());
+
+    expect!(
+        unsafe { &mut *classheap }.load_class(filename, class_ptr),
+        "loading class file is failed"
+    );
+
+    unsafe { (*class_ptr).classheap = Some(classheap) };
+
+    let mut vm = VM::new(classheap, objectheap);
+    let object = unsafe { &mut *objectheap }.create_object(class_ptr);
+    let (class, method) = expect!(
+        unsafe { &*class_ptr }.get_method("<init>", "()V"),
+        "Couldn't find <init>"
+    );
+    vm.stack[0] = Variable::Object(object);
+    vm.frame_stack[0].class = Some(class);
+    vm.frame_stack[0].method_info = method;
+    vm.frame_stack[0].sp = if let Some(Attribute::Code { max_locals, .. }) =
+        vm.frame_stack[0].method_info.get_code_attribute()
+    {
+        *max_locals as usize
+    } else {
+        panic!()
+    };
+
+    vm.run();
+
+    if let Some((class, method)) = unsafe { &*class_ptr }.get_method("<clinit>", "()V") {
+        vm.bp = 0;
+        vm.frame_stack[0].pc = 0;
+        vm.frame_stack[0].class = Some(class);
+        vm.frame_stack[0].method_info = method;
+        vm.frame_stack[0].sp = if let Some(Attribute::Code { max_locals, .. }) =
+            vm.frame_stack[0].method_info.get_code_attribute()
+        {
+            *max_locals as usize
+        } else {
+            panic!()
+        };
+
+        vm.run();
+    }
+
+    class_ptr
+}
+
+pub fn load_class(
+    classheap: GcType<ClassHeap>,
+    objectheap: GcType<ObjectHeap>,
+    class_name: &str,
+) -> GcType<Class> {
+    if let Some(class) = unsafe { &*classheap }.get_class(class_name) {
+        return class;
+    }
+
+    let filename = format!("./examples/{}.class", class_name);
+    load_class_with_filename(classheap, objectheap, filename.as_str())
 }
 
 #[rustfmt::skip]
@@ -832,7 +1012,8 @@ mod Inst {
     pub const return_:      u8 = 177;
     pub const getstatic:    u8 = 178;
     pub const putstatic:    u8 = 179;
-    // pub const getfield:     u8 = 180;
+    pub const getfield:     u8 = 180;
+    pub const putfield:     u8 = 181;
     pub const invokevirtual:u8 = 182;
     pub const invokespecial:u8 = 183;
     pub const invokestatic: u8 = 184;

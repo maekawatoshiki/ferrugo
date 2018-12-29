@@ -1,3 +1,7 @@
+class Point {
+  int x, y;
+}
+
 class Hello {
   public static int fibo(int n) {
     if (n <= 2) return 1;
@@ -24,7 +28,14 @@ class Hello {
     System.out.println(123);
     System.out.println(123456789);
     System.out.println(calc_pi());
+
     for (int i = 1; i <= 20; i++)
       System.out.println(fibo(i));
+
+    Point p = new Point();
+    p.x = 2;
+    p.y = 3;
+    System.out.println(p.x);
+    System.out.println(p.y);
   }
 }
