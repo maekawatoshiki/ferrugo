@@ -52,6 +52,6 @@ jobs:
             REPORT=$(find ./target/debug -maxdepth 1 -name 'ferrugo-*' -a ! -name '*.d')
             for file in $REPORT; do  
               echo $file
-              /usr/local/bin/kcov-system-daemon --include-pattern=ferrugo/src --exclude-pattern=/.cargo ./target/cov "$file"
+              ./src/Release/kcov --include-pattern=ferrugo/src --exclude-pattern=/.cargo ./target/cov "$file"
             done
             bash <(curl -s https://codecov.io/bash) -s ./target/cov
