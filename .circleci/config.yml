@@ -49,6 +49,10 @@ jobs:
             export PATH=~/.cargo/bin:$PATH
             cargo test --no-run
 
+            pwd 
+            ls 
+            ls kcov/src/
+            ls kcov/src/Release
             REPORT=$(find ./target/debug -maxdepth 1 -name 'ferrugo-*' -a ! -name '*.d')
             for file in $REPORT; do  
               echo $file
