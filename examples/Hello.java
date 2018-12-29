@@ -1,5 +1,9 @@
 class Point {
   int x, y;
+  Point() {
+    x = 0;
+    y = 0;
+  }
   public void show() {
     System.out.println("x = " + x + ", y = " + y);
   }
@@ -32,9 +36,14 @@ class Hello {
     System.out.println(123456789);
     System.out.println(calc_pi());
 
+    char a = 'a';
+    short x = 6553, y = 3;
+    x += y;
+    
+    fibo(1); 
     for (int i = 1; i <= 20; i++)
       System.out.println(fibo(i));
-
+    
     Point p = new Point();
     p.x = 2;
     p.y = 3;

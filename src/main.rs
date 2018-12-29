@@ -70,3 +70,21 @@ fn run_file(filename: &str) {
 
     dprintln!("stack trace: {:?}", &vm.stack[0..16]);
 }
+
+#[test]
+fn run_example() {
+    run_file("examples/Hello.class");
+}
+
+#[test]
+fn read_classfiles() {
+    use ferrugo::class::classfile::read::ClassFileReader;
+    use std::fs;
+    let paths = fs::read_dir("./examples/test").unwrap();
+    for filename in paths {
+        ClassFileReader::new(filename.unwrap().path().to_str().unwrap())
+            .unwrap()
+            .read()
+            .unwrap();
+    }
+}

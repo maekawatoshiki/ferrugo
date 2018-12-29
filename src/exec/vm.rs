@@ -91,6 +91,13 @@ impl VM {
                     frame.sp -= 1;
                     frame.pc += 2;
                 }
+                Inst::astore => {
+                    let mut frame = frame!();
+                    let index = code[frame.pc as usize + 1] as usize;
+                    self.stack[self.bp + index] = self.stack[self.bp + frame.sp - 1].clone();
+                    frame.sp -= 1;
+                    frame.pc += 2;
+                }
                 Inst::istore => {
                     let mut frame = frame!();
                     let index = code[frame.pc as usize + 1] as usize;
@@ -161,6 +168,13 @@ impl VM {
                     self.stack[self.bp + frame.sp] = val;
                     frame.sp += 1;
                     frame.pc += 3;
+                }
+                Inst::aload => {
+                    let mut frame = frame!();
+                    let index = code[frame.pc + 1] as usize;
+                    self.stack[self.bp + frame.sp] = self.stack[self.bp + index].clone();
+                    frame.sp += 1;
+                    frame.pc += 2;
                 }
                 Inst::dload => {
                     let mut frame = frame!();
@@ -279,6 +293,12 @@ impl VM {
                     let mut frame = frame!();
                     self.stack[self.bp + frame.sp - 1] =
                         Variable::Double(self.stack[self.bp + frame.sp - 1].get_int() as f64);
+                    frame.pc += 1;
+                }
+                Inst::i2s => {
+                    let mut frame = frame!();
+                    self.stack[self.bp + frame.sp - 1] =
+                        Variable::Short(self.stack[self.bp + frame.sp - 1].get_int() as i16);
                     frame.pc += 1;
                 }
                 Inst::invokestatic => {
@@ -1020,6 +1040,7 @@ mod Inst {
     pub const istore_1:     u8 = 60;
     pub const istore_2:     u8 = 61;
     pub const istore_3:     u8 = 62;
+    pub const aload:        u8 = 25;
     pub const iload_0:      u8 = 26;
     pub const iload_1:      u8 = 27;
     pub const iload_2:      u8 = 28;
@@ -1029,6 +1050,7 @@ mod Inst {
     pub const dload_2:      u8 = 40;
     pub const dload_3:      u8 = 41;
     pub const dstore:       u8 = 57;
+    pub const astore:       u8 = 58;
     pub const dstore_0:     u8 = 71;
     pub const dstore_1:     u8 = 72;
     pub const dstore_2:     u8 = 73;
@@ -1049,6 +1071,7 @@ mod Inst {
     pub const dneg:         u8 = 119;
     pub const iinc:         u8 = 132;
     pub const i2d:          u8 = 135;
+    pub const i2s:          u8 = 147;
     pub const dcmpl:        u8 = 151;
     pub const ifeq:         u8 = 153;
     pub const if_icmpge:    u8 = 162;
