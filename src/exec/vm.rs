@@ -4,7 +4,7 @@ use super::super::class::classfile::constant::Constant;
 use super::super::class::classfile::method::MethodInfo;
 use super::super::class::classheap::ClassHeap;
 use super::super::gc::{gc, gc::GcType};
-use super::frame::{Frame, Object, Variable};
+use super::frame::{Frame, Variable};
 use super::objectheap::ObjectHeap;
 use ansi_term::Colour;
 
@@ -141,10 +141,8 @@ impl VM {
                             // TODO: Constant string refers to constant pool,
                             // so should not create a new string object.
                             // "aaa" == "aaa" // => true
-                            Variable::Object(
-                                unsafe { &mut *self.objectheap }
-                                    .create_string_object(string, self.classheap),
-                            )
+                            unsafe { &mut *self.objectheap }
+                                .create_string_object(string, self.classheap)
                         }
                         _ => unimplemented!(),
                     };
@@ -426,9 +424,7 @@ impl VM {
             }
             "java/io/PrintStream.println:(Ljava/lang/String;)V" => {
                 let object_body = match &self.stack[self.bp + 1] {
-                    Variable::Object(object) => unsafe {
-                        &mut *objectheap.get_object(object.heap_id).unwrap()
-                    },
+                    Variable::Object(body) => unsafe { &mut **body },
                     _ => panic!(),
                 };
                 println!("{}", unsafe {
@@ -438,35 +434,30 @@ impl VM {
             // static
             "java/lang/String.valueOf:(I)Ljava/lang/String;" => {
                 let i = self.stack[self.bp + 0].get_int();
-                self.stack[self.bp + 0] = Variable::Object(
-                    objectheap.create_string_object(format!("{}", i), self.classheap),
-                );
+                self.stack[self.bp + 0] =
+                    objectheap.create_string_object(format!("{}", i), self.classheap);
             }
             "java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;" => {
                 let string_builder = match &self.stack[self.bp + 0] {
-                    Variable::Object(object) => unsafe {
-                        &mut *objectheap.get_object(object.heap_id).unwrap()
-                    },
+                    Variable::Object(body) => unsafe { &mut **body },
                     _ => panic!(),
                 };
                 let append_str = match &self.stack[self.bp + frame.sp - 1] {
-                    Variable::Object(object) => unsafe {
-                        let string = &mut *objectheap.get_object(object.heap_id).unwrap();
+                    Variable::Object(body) => unsafe {
+                        let string = &mut **body;
                         &*(string.variables.get("str").unwrap().get_pointer() as GcType<String>)
                     },
                     _ => panic!(),
                 };
                 let string = {
-                    let heap_id = string_builder
-                        .variables
-                        .entry("str".to_string())
-                        .or_insert(Variable::Object(
-                            objectheap.create_string_object("".to_string(), self.classheap),
-                        ))
-                        .get_object()
-                        .heap_id;
                     unsafe {
-                        let string = &mut *objectheap.get_object(heap_id).unwrap();
+                        let string = &mut *string_builder
+                            .variables
+                            .entry("str".to_string())
+                            .or_insert(
+                                objectheap.create_string_object("".to_string(), self.classheap),
+                            )
+                            .get_object();
                         &mut *(string.variables.get_mut("str").unwrap().get_pointer()
                             as GcType<String>)
                     }
@@ -475,31 +466,28 @@ impl VM {
             }
             "java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;" => {
                 let string_builder = match &self.stack[self.bp + 0] {
-                    Variable::Object(object) => unsafe {
-                        &mut *objectheap.get_object(object.heap_id).unwrap()
-                    },
+                    Variable::Object(body) => unsafe { &mut **body },
                     _ => panic!(),
                 };
                 let append_int = self.stack[self.bp + frame.sp - 1].get_int();
-                let string = unsafe {
-                    let heap_id = string_builder
-                        .variables
-                        .entry("str".to_string())
-                        .or_insert(Variable::Object(
-                            objectheap.create_string_object("".to_string(), self.classheap),
-                        ))
-                        .get_object()
-                        .heap_id;
-                    let string = &mut *objectheap.get_object(heap_id).unwrap();
-                    &mut *(string.variables.get_mut("str").unwrap().get_pointer() as GcType<String>)
+                let string = {
+                    unsafe {
+                        let string = &mut *string_builder
+                            .variables
+                            .entry("str".to_string())
+                            .or_insert(
+                                objectheap.create_string_object("".to_string(), self.classheap),
+                            )
+                            .get_object();
+                        &mut *(string.variables.get_mut("str").unwrap().get_pointer()
+                            as GcType<String>)
+                    }
                 };
                 string.push_str(format!("{}", append_int).as_str());
             }
             "java/lang/StringBuilder.toString:()Ljava/lang/String;" => {
                 let string_builder = match &self.stack[self.bp + 0] {
-                    Variable::Object(object) => unsafe {
-                        &mut *objectheap.get_object(object.heap_id).unwrap()
-                    },
+                    Variable::Object(body) => unsafe { &mut **body },
                     _ => panic!(),
                 };
                 let s = string_builder.variables.get("str").unwrap().clone();
@@ -523,12 +511,11 @@ impl VM {
             };
         frame.pc += 3;
 
-        let objectref =
-            if let Variable::Object(Object { heap_id }) = self.stack[self.bp + frame.sp - 1] {
-                unsafe { &*self.objectheap }.get_object(heap_id).unwrap()
-            } else {
-                panic!()
-            };
+        let objectref = if let Variable::Object(body) = self.stack[self.bp + frame.sp - 1] {
+            unsafe { &mut *body }
+        } else {
+            panic!()
+        };
         frame.sp -= 1;
 
         let const_pool = &frame_class.classfile.constant_pool[index];
@@ -556,7 +543,7 @@ impl VM {
             .get_utf8()
             .unwrap();
 
-        let value = unsafe { &mut *objectref }.variables.get(name).unwrap();
+        let value = objectref.variables.get(name).unwrap();
 
         self.stack[self.bp + frame.sp] = value.clone();
         frame.sp += 1;
@@ -576,12 +563,11 @@ impl VM {
             };
         frame.pc += 3;
 
-        let objectref =
-            if let Variable::Object(Object { heap_id }) = self.stack[self.bp + frame.sp - 2] {
-                unsafe { &*self.objectheap }.get_object(heap_id).unwrap()
-            } else {
-                panic!()
-            };
+        let objectref = if let Variable::Object(body) = self.stack[self.bp + frame.sp - 2] {
+            unsafe { &mut *body }
+        } else {
+            panic!()
+        };
         let value = self.stack[self.bp + frame.sp - 1].clone();
         frame.sp -= 2;
 
@@ -610,9 +596,7 @@ impl VM {
             .get_utf8()
             .unwrap();
 
-        unsafe { &mut *objectref }
-            .variables
-            .insert(name.clone(), value);
+        objectref.variables.insert(name.clone(), value);
     }
 
     fn run_get_static(&mut self) {
@@ -924,7 +908,7 @@ impl VM {
 
         let object = unsafe { &mut *self.objectheap }.create_object(class);
 
-        self.stack[self.bp + frame.sp] = Variable::Object(object);
+        self.stack[self.bp + frame.sp] = object;
 
         frame.sp += 1;
     }
@@ -962,7 +946,7 @@ pub fn load_class_with_filename(
         unsafe { &*class_ptr }.get_method("<init>", "()V"),
         "Couldn't find <init>"
     );
-    vm.stack[0] = Variable::Object(object);
+    vm.stack[0] = object;
     vm.frame_stack[0].class = Some(class);
     vm.frame_stack[0].method_info = method;
     vm.frame_stack[0].sp = if let Some(Attribute::Code { max_locals, .. }) =

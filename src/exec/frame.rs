@@ -1,6 +1,7 @@
 use super::super::class::class::Class;
 use super::super::class::classfile::method::MethodInfo;
 use super::super::gc::gc::GcType;
+use rustc_hash::FxHashMap;
 
 #[derive(Debug, Clone)]
 pub struct Frame {
@@ -28,13 +29,14 @@ pub enum Variable {
     Int(i32),
     Float(f32),
     Double(f64),
-    Object(Object),
+    Object(GcType<ObjectBody>),
     Pointer(GcType<u64>),
 }
 
 #[derive(Debug, Clone)]
-pub struct Object {
-    pub heap_id: usize,
+pub struct ObjectBody {
+    pub class: Variable,
+    pub variables: FxHashMap<String, Variable>,
 }
 
 impl Variable {
@@ -61,9 +63,9 @@ impl Variable {
         }
     }
 
-    pub fn get_object(&self) -> &Object {
+    pub fn get_object(&self) -> GcType<ObjectBody> {
         match self {
-            Variable::Object(object) => object,
+            Variable::Object(body) => *body,
             _ => panic!("huh"),
         }
     }

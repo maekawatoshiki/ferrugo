@@ -2,7 +2,6 @@
 extern crate ferrugo;
 use ferrugo::class::classfile::attribute::Attribute;
 use ferrugo::class::classheap;
-use ferrugo::exec::frame::Variable;
 use ferrugo::exec::objectheap::ObjectHeap;
 use ferrugo::exec::vm::{load_class_with_filename, VM};
 use ferrugo::gc::gc;
@@ -54,7 +53,7 @@ fn run_file(filename: &str) {
     let object = objectheap.create_object(class_ptr);
 
     let mut vm = VM::new(classheap, objectheap);
-    vm.stack[0] = Variable::Object(object);
+    vm.stack[0] = object;
     vm.frame_stack[0].class = Some(class);
     vm.frame_stack[0].method_info = method;
     vm.frame_stack[0].sp = if let Some(Attribute::Code { max_locals, .. }) =
