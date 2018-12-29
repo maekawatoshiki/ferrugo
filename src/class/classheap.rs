@@ -22,7 +22,7 @@ impl ClassHeap {
 
     pub fn load_class(&mut self, class_name: &str, class: GcType<Class>) -> Option<()> {
         let class = unsafe { &mut *class };
-        class.load_classfile(class_name);
+        class.load_classfile(class_name)?;
         self.add_class(class);
         Some(())
     }

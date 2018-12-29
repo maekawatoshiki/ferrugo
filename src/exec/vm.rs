@@ -920,7 +920,7 @@ macro_rules! expect {
             Some(some) => some,
             None => {
                 eprintln!("{}: {}", Colour::Red.bold().paint("error"), $msg);
-                ::std::process::abort();
+                ::std::process::exit(-1);
             }
         }
     }};
@@ -935,7 +935,7 @@ pub fn load_class_with_filename(
 
     expect!(
         unsafe { &mut *classheap }.load_class(filename, class_ptr),
-        "loading class file is failed"
+        format!("Couldn't load file '{}'", filename)
     );
 
     unsafe { (*class_ptr).classheap = Some(classheap) };
