@@ -33,7 +33,7 @@ rustup override set nightly
 cargo test
 ```
 
-5. Build and Run
+4. Build and Run
 
 ```sh
 cargo run --release example/Hello.class
