@@ -3,13 +3,13 @@ use super::super::gc::gc::GcType;
 use super::classfile::read::ClassFileReader;
 use super::classfile::{classfile::ClassFile, field::FieldInfo, method::MethodInfo};
 use super::classheap::ClassHeap;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 #[derive(Debug, Clone)]
 pub struct Class {
     pub classfile: ClassFile,
     pub classheap: Option<GcType<ClassHeap>>,
-    pub static_variables: HashMap<String, Variable>,
+    pub static_variables: FxHashMap<String, Variable>,
 }
 
 impl Class {
@@ -17,7 +17,7 @@ impl Class {
         Class {
             classfile: ClassFile::new(),
             classheap: None,
-            static_variables: HashMap::new(),
+            static_variables: FxHashMap::default(),
         }
     }
 

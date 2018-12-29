@@ -1,23 +1,24 @@
 use super::super::class::{class::Class, classheap::ClassHeap};
 use super::super::gc::{gc, gc::GcType};
 use super::frame::{Object, Variable};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 #[derive(Clone, Debug)]
 pub struct ObjectHeap {
-    pub object_map: HashMap<usize, GcType<ObjectBody>>,
+    pub object_map: FxHashMap<usize, GcType<ObjectBody>>,
     pub id: usize,
 }
 
 #[derive(Debug, Clone)]
 pub struct ObjectBody {
-    pub variables: Vec<Variable>,
+    pub class: Variable,
+    pub variables: FxHashMap<String, Variable>,
 }
 
 impl ObjectHeap {
     pub fn new() -> ObjectHeap {
         ObjectHeap {
-            object_map: HashMap::new(),
+            object_map: FxHashMap::default(),
             id: 0,
         }
     }
@@ -31,16 +32,10 @@ impl ObjectHeap {
     pub fn create_object(&mut self, class: GcType<Class>) -> Object {
         let mut object = Object { heap_id: 0 };
 
-        let class_field_count = unsafe { &*class }.get_object_field_count() + 1; // plus 1 for class pointer
+        // let class_field_count = unsafe { &*class }.get_object_field_count() + 1; // plus 1 for class pointer
         let obj = gc::new(ObjectBody {
-            variables: {
-                let mut vars = vec![];
-                for _ in 0..class_field_count {
-                    vars.push(Variable::Int(0))
-                }
-                vars[0] = Variable::Pointer(class as *mut u64);
-                vars
-            },
+            class: Variable::Pointer(class as *mut u64),
+            variables: FxHashMap::default(),
         });
 
         object.heap_id = self.id;
@@ -58,8 +53,10 @@ impl ObjectHeap {
         let object = self.create_object(class);
 
         let vars = *self.object_map.get(&object.heap_id).unwrap();
-        unsafe { &mut *vars }.variables[1] =
-            Variable::Pointer(Box::into_raw(Box::new(string)) as GcType<u64>);
+        unsafe { &mut *vars }.variables.insert(
+            "str".to_string(),
+            Variable::Pointer(Box::into_raw(Box::new(string)) as GcType<u64>),
+        );
 
         object
     }

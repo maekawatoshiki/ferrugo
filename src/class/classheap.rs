@@ -1,16 +1,16 @@
 use super::super::gc::gc::GcType;
 use super::class::Class;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 #[derive(Debug, Clone)]
 pub struct ClassHeap {
-    pub class_map: HashMap<String, GcType<Class>>,
+    pub class_map: FxHashMap<String, GcType<Class>>,
 }
 
 impl ClassHeap {
     pub fn new() -> Self {
         ClassHeap {
-            class_map: HashMap::new(),
+            class_map: FxHashMap::default(),
         }
     }
 

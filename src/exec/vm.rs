@@ -428,7 +428,7 @@ impl VM {
                     _ => panic!(),
                 };
                 println!("{}", unsafe {
-                    &*(object_body.variables[1].get_pointer() as GcType<String>)
+                    &*(object_body.variables.get("str").unwrap().get_pointer() as GcType<String>)
                 });
             }
             // static

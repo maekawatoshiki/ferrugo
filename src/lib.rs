@@ -5,3 +5,5 @@
 pub mod class;
 pub mod exec;
 pub mod gc;
+
+extern crate rustc_hash;
