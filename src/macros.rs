@@ -1,9 +1,12 @@
+use ansi_term;
+
 #[macro_export]
 macro_rules! dprintln {
     ($($arg:tt)*) => {
         #[cfg(debug_assertions)]
         {
-            println!($($arg)*);
+            let s = format!($($arg)*);
+            println!("{}", ansi_term::Colour::White.dimmed().paint(s));
         }
     }
 }
