@@ -39,17 +39,19 @@ impl ClassFileReader {
     pub fn read(&mut self) -> Option<ClassFile> {
         let magic = self.read_u32()?;
         try_eq!(magic == 0xCAFEBABE);
-        println!("cafebabe!");
+
+        dprintln!("cafebabe!");
 
         let minor_version = self.read_u16()?;
         let major_version = self.read_u16()?;
-        println!(
+        dprintln!(
             "version: minor: {}, major: {}",
-            minor_version, major_version
+            minor_version,
+            major_version
         );
 
         let constant_pool_count = self.read_u16()?;
-        println!("constant_pool_count: {}", constant_pool_count);
+        dprintln!("constant_pool_count: {}", constant_pool_count);
 
         let mut constant_pool = vec![Constant::None];
         let mut idx = 0;
@@ -58,7 +60,7 @@ impl ClassFileReader {
             // println!("tag: {:?}", tag);
             let const_ty = constant::u8_to_constant_type(tag)?;
             let constant = self.read_constant(&const_ty)?;
-            println!("#{}:\t{:?}", constant_pool.len(), constant);
+            dprintln!("#{}:\t{:?}", constant_pool.len(), constant);
 
             constant_pool.push(constant);
 
@@ -76,34 +78,34 @@ impl ClassFileReader {
         }
 
         let access_flags = self.read_u16()?;
-        println!("access_flags: {}", access_flags);
+        dprintln!("access_flags: {}", access_flags);
 
         let this_class = self.read_u16()?;
-        println!("this_class: {}", this_class);
+        dprintln!("this_class: {}", this_class);
 
         let super_class = self.read_u16()?;
-        println!("super_class: {}", super_class);
+        dprintln!("super_class: {}", super_class);
 
         let interfaces_count = self.read_u16()?;
-        println!("interfaces_count: {}", interfaces_count);
+        dprintln!("interfaces_count: {}", interfaces_count);
 
         let mut interfaces = vec![];
         for _ in 0..interfaces_count {
             interfaces.push(self.read_constant_class_info()?);
         }
-        println!("interfaces: {:?}", interfaces);
+        dprintln!("interfaces: {:?}", interfaces);
 
         let fields_count = self.read_u16()?;
-        println!("fields_count: {}", fields_count);
+        dprintln!("fields_count: {}", fields_count);
 
         let mut fields = vec![];
         for _ in 0..fields_count {
             fields.push(self.read_field_info(&constant_pool)?);
         }
-        println!("fields: {:?}", fields);
+        dprintln!("fields: {:?}", fields);
 
         let methods_count = self.read_u16()?;
-        println!("methods_count: {}", methods_count);
+        dprintln!("methods_count: {}", methods_count);
 
         let mut methods = vec![];
         for _ in 0..methods_count {
@@ -112,13 +114,13 @@ impl ClassFileReader {
         // println!("methods: {:?}", methods);
 
         let attributes_count = self.read_u16()?;
-        println!("attributes_count: {}", attributes_count);
+        dprintln!("attributes_count: {}", attributes_count);
 
         let mut attributes = vec![];
         for _ in 0..attributes_count {
             attributes.push(self.read_attribute_info(&constant_pool)?)
         }
-        println!("attributes: {:?}", attributes);
+        dprintln!("attributes: {:?}", attributes);
 
         Some(ClassFile {
             magic: 0xCAFEBABE,

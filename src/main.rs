@@ -1,3 +1,4 @@
+#[macro_use]
 extern crate ferrugo;
 use ferrugo::class::classfile::attribute::Attribute;
 use ferrugo::class::classheap;
@@ -64,9 +65,9 @@ fn run_file(filename: &str) {
         panic!()
     };
 
-    println!("---- exec output begin ----");
+    dprintln!("---- exec output begin ----");
     vm.run();
-    println!("---- exec output end ------");
+    dprintln!("---- exec output end ------");
 
-    println!("stack trace: {:?}", &vm.stack[0..16]);
+    dprintln!("stack trace: {:?}", &vm.stack[0..16]);
 }

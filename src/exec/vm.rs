@@ -855,7 +855,7 @@ impl VM {
             .get_utf8()
             .unwrap();
 
-        println!("> {}", class_name);
+        // println!("> {}", class_name);
 
         let class = load_class(self.classheap, self.objectheap, class_name);
 
