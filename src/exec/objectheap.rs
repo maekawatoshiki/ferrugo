@@ -1,4 +1,5 @@
 use super::super::class::{class::Class, classheap::ClassHeap};
+use super::super::exec::vm::load_class;
 use super::super::gc::{gc, gc::GcType};
 use super::frame::{Object, Variable};
 use rustc_hash::FxHashMap;
@@ -47,9 +48,7 @@ impl ObjectHeap {
     }
 
     pub fn create_string_object(&mut self, string: String, classheap: GcType<ClassHeap>) -> Object {
-        let classheap = unsafe { &*classheap };
-
-        let class = *classheap.class_map.get("java/lang/String").unwrap();
+        let class = load_class(classheap, self, "java/lang/String");
         let object = self.create_object(class);
 
         let vars = *self.object_map.get(&object.heap_id).unwrap();
