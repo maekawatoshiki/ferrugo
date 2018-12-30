@@ -1,9 +1,11 @@
 class Point {
   int x, y;
+
   Point() {
     x = 0;
     y = 0;
   }
+
   public void show() {
     System.out.println("x = " + x + ", y = " + y);
   }
@@ -35,7 +37,7 @@ class Hello {
     System.out.println(123);
     System.out.println(123456789);
     System.out.println(calc_pi());
-
+    
     char a = 'a';
     short x = 6553, y = 3;
     x += y;
@@ -48,5 +50,13 @@ class Hello {
     p.x = 2;
     p.y = 3;
     p.show();
+
+    int i = 2;
+    if (i == 2) {
+      i = 3;
+    } else {
+      i = 5;
+    }
+    System.out.println(i);
   }
 }

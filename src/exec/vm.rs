@@ -361,6 +361,18 @@ impl VM {
                         frame.pc += 3;
                     }
                 }
+                Inst::if_icmpne => {
+                    let mut frame = frame!();
+                    let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
+                    let val2 = self.stack[self.bp + frame.sp - 1].get_int();
+                    let val1 = self.stack[self.bp + frame.sp - 2].get_int();
+                    if val1 != val2 {
+                        frame.pc = (frame.pc as isize + branch as isize) as usize;
+                    } else {
+                        frame.pc += 3;
+                    }
+                    frame.sp -= 2;
+                }
                 Inst::if_icmpge => {
                     let mut frame = frame!();
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
@@ -1074,6 +1086,7 @@ mod Inst {
     pub const i2s:          u8 = 147;
     pub const dcmpl:        u8 = 151;
     pub const ifeq:         u8 = 153;
+    pub const if_icmpne:    u8 = 160;
     pub const if_icmpge:    u8 = 162;
     pub const if_icmpgt:    u8 = 163;
     pub const goto:         u8 = 167;
