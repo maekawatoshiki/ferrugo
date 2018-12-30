@@ -11,6 +11,31 @@ class Point {
   }
 }
 
+class Person {
+  String name;
+
+  Person(String new_name) {
+    name = new_name;
+  }
+
+  public void show() {
+    System.out.println("I'm " + name);
+  }
+}
+
+class Teacher extends Person {
+  String subject;
+
+  Teacher(String new_name, String new_subject) {
+    super(new_name);
+    subject = new_subject;
+  }
+
+  public void show() {
+    System.out.println("I'm " + name + ", teaching " + subject);
+  }
+}
+
 class Hello {
   public static int fibo(int n) {
     if (n <= 2) return 1;
@@ -58,5 +83,10 @@ class Hello {
       i = 5;
     }
     System.out.println(i);
+
+    Person person = new Person("uint256_t");
+    person.show();
+    Teacher eng = new Teacher("uint256_t", "English");
+    eng.show();
   }
 }
