@@ -42,6 +42,15 @@ class Hello {
     else return fibo(n - 1) + fibo(n - 2);
   }
 
+  public static boolean is_prime(int n) {
+    if (n == 2) return true;
+    if (n % 2 == 0 || n <= 1) return false;
+    for (int k = 3; k * k <= n; k += 2) 
+      if (n % k == 0) 
+        return false;
+    return true;
+  }
+
   public static double arctan(double x) {
     double ret = 0.0;
     double sig = x;
@@ -88,5 +97,9 @@ class Hello {
     person.show();
     Teacher eng = new Teacher("uint256_t", "English");
     eng.show();
+
+    for (i = 1; i <= 50000; i++) {
+      if (is_prime(i)) System.out.println(i + " is prime");
+    }
   }
 }

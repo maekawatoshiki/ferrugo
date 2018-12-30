@@ -54,21 +54,24 @@ impl VM {
             }};
         }
 
-        if frame!().method_info.access_flags & 0x0100 > 0 {
+        let frame = frame!();
+
+        if frame.method_info.access_flags & 0x0100 > 0 {
             // ACC_NATIVE
             self.run_native_method();
             return 0;
         }
 
         let code =
-            if let Some(Attribute::Code { code, .. }) = frame!().method_info.get_code_attribute() {
+            if let Some(Attribute::Code { code, .. }) = frame.method_info.get_code_attribute() {
                 code.clone()
             } else {
                 panic!()
             };
 
         loop {
-            let cur_code = code[frame!().pc as usize];
+            let frame = frame!();
+            let cur_code = code[frame.pc as usize];
 
             match cur_code {
                 Inst::iconst_m1
@@ -78,70 +81,60 @@ impl VM {
                 | Inst::iconst_3
                 | Inst::iconst_4
                 | Inst::iconst_5 => {
-                    let mut frame = frame!();
                     self.stack[self.bp + frame.sp] =
                         Variable::Int(cur_code as i32 - Inst::iconst_0 as i32);
                     frame.sp += 1;
                     frame.pc += 1;
                 }
                 Inst::dconst_0 | Inst::dconst_1 => {
-                    let mut frame = frame!();
                     self.stack[self.bp + frame.sp] =
                         Variable::Double((cur_code as i64 - Inst::dconst_0 as i64) as f64);
                     frame.sp += 1;
                     frame.pc += 1;
                 }
                 Inst::dstore => {
-                    let mut frame = frame!();
                     let index = code[frame.pc as usize + 1] as usize;
                     self.stack[self.bp + index] = self.stack[self.bp + frame.sp - 1].clone();
                     frame.sp -= 1;
                     frame.pc += 2;
                 }
                 Inst::astore => {
-                    let mut frame = frame!();
                     let index = code[frame.pc as usize + 1] as usize;
                     self.stack[self.bp + index] = self.stack[self.bp + frame.sp - 1].clone();
                     frame.sp -= 1;
                     frame.pc += 2;
                 }
                 Inst::istore => {
-                    let mut frame = frame!();
                     let index = code[frame.pc as usize + 1] as usize;
                     self.stack[self.bp + index] = self.stack[self.bp + frame.sp - 1].clone();
                     frame.sp -= 1;
                     frame.pc += 2;
                 }
                 Inst::istore_0 | Inst::istore_1 | Inst::istore_2 | Inst::istore_3 => {
-                    let mut frame = frame!();
                     self.stack[self.bp + cur_code as usize - Inst::istore_0 as usize] =
                         self.stack[self.bp + frame.sp - 1].clone();
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::iload_0 | Inst::iload_1 | Inst::iload_2 | Inst::iload_3 => {
-                    let mut frame = frame!();
                     self.stack[self.bp + frame.sp] =
                         self.stack[self.bp + cur_code as usize - Inst::iload_0 as usize].clone();
                     frame.sp += 1;
                     frame.pc += 1;
                 }
                 Inst::dload_0 | Inst::dload_1 | Inst::dload_2 | Inst::dload_3 => {
-                    let mut frame = frame!();
                     self.stack[self.bp + frame.sp] =
                         self.stack[self.bp + cur_code as usize - Inst::dload_0 as usize].clone();
                     frame.sp += 1;
                     frame.pc += 1;
                 }
                 Inst::sipush => {
-                    let mut frame = frame!();
                     let val = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                     self.stack[self.bp + frame.sp] = Variable::Short(val);
                     frame.sp += 1;
                     frame.pc += 3;
                 }
                 Inst::ldc => {
-                    let mut frame = frame!();
                     let index = code[frame.pc + 1] as usize;
                     let val = match unsafe { &*frame.class.unwrap() }.classfile.constant_pool[index]
                     {
@@ -165,7 +158,6 @@ impl VM {
                     frame.pc += 2;
                 }
                 Inst::ldc2_w => {
-                    let mut frame = frame!();
                     let index = ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize;
                     let val = match unsafe { &*frame.class.unwrap() }.classfile.constant_pool[index]
                     {
@@ -177,55 +169,47 @@ impl VM {
                     frame.pc += 3;
                 }
                 Inst::aload => {
-                    let mut frame = frame!();
                     let index = code[frame.pc + 1] as usize;
                     self.stack[self.bp + frame.sp] = self.stack[self.bp + index].clone();
                     frame.sp += 1;
                     frame.pc += 2;
                 }
                 Inst::dload => {
-                    let mut frame = frame!();
                     let index = code[frame.pc + 1] as usize;
                     self.stack[self.bp + frame.sp] = self.stack[self.bp + index].clone();
                     frame.sp += 1;
                     frame.pc += 2;
                 }
                 Inst::iload => {
-                    let mut frame = frame!();
                     let index = code[frame.pc + 1] as usize;
                     self.stack[self.bp + frame.sp] = self.stack[self.bp + index].clone();
                     frame.sp += 1;
                     frame.pc += 2;
                 }
                 Inst::aload_0 | Inst::aload_1 | Inst::aload_2 | Inst::aload_3 => {
-                    let mut frame = frame!();
                     self.stack[self.bp + frame.sp] =
                         self.stack[self.bp + cur_code as usize - Inst::aload_0 as usize].clone();
                     frame.sp += 1;
                     frame.pc += 1;
                 }
                 Inst::dstore_0 | Inst::dstore_1 | Inst::dstore_2 | Inst::dstore_3 => {
-                    let mut frame = frame!();
                     self.stack[self.bp + (cur_code as usize - Inst::dstore_0 as usize)] =
                         self.stack[self.bp + frame.sp - 1].clone();
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::astore_0 | Inst::astore_1 | Inst::astore_2 | Inst::astore_3 => {
-                    let mut frame = frame!();
                     self.stack[self.bp + (cur_code as usize - Inst::astore_0 as usize)] =
                         self.stack[self.bp + frame.sp - 1].clone();
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::bipush => {
-                    let mut frame = frame!();
                     self.stack[self.bp + frame.sp] = Variable::Char(code[frame.pc + 1] as i8);
                     frame.sp += 1;
                     frame.pc += 2;
                 }
                 Inst::iadd => {
-                    let mut frame = frame!();
                     self.stack[self.bp + frame.sp - 2] = Variable::Int(
                         self.stack[self.bp + frame.sp - 2].get_int()
                             + self.stack[self.bp + frame.sp - 1].get_int(),
@@ -234,7 +218,6 @@ impl VM {
                     frame.pc += 1;
                 }
                 Inst::dadd => {
-                    let mut frame = frame!();
                     self.stack[self.bp + frame.sp - 2] = Variable::Double(
                         self.stack[self.bp + frame.sp - 2].get_double()
                             + self.stack[self.bp + frame.sp - 1].get_double(),
@@ -243,7 +226,6 @@ impl VM {
                     frame.pc += 1;
                 }
                 Inst::isub => {
-                    let mut frame = frame!();
                     self.stack[self.bp + frame.sp - 2] = Variable::Int(
                         self.stack[self.bp + frame.sp - 2].get_int()
                             - self.stack[self.bp + frame.sp - 1].get_int(),
@@ -252,7 +234,6 @@ impl VM {
                     frame.pc += 1;
                 }
                 Inst::dsub => {
-                    let mut frame = frame!();
                     self.stack[self.bp + frame.sp - 2] = Variable::Double(
                         self.stack[self.bp + frame.sp - 2].get_double()
                             - self.stack[self.bp + frame.sp - 1].get_double(),
@@ -260,8 +241,15 @@ impl VM {
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
+                Inst::imul => {
+                    self.stack[self.bp + frame.sp - 2] = Variable::Int(
+                        self.stack[self.bp + frame.sp - 2].get_int()
+                            * self.stack[self.bp + frame.sp - 1].get_int(),
+                    );
+                    frame.sp -= 1;
+                    frame.pc += 1;
+                }
                 Inst::dmul => {
-                    let mut frame = frame!();
                     self.stack[self.bp + frame.sp - 2] = Variable::Double(
                         self.stack[self.bp + frame.sp - 2].get_double()
                             * self.stack[self.bp + frame.sp - 1].get_double(),
@@ -270,7 +258,6 @@ impl VM {
                     frame.pc += 1;
                 }
                 Inst::ddiv => {
-                    let mut frame = frame!();
                     self.stack[self.bp + frame.sp - 2] = Variable::Double(
                         self.stack[self.bp + frame.sp - 2].get_double()
                             / self.stack[self.bp + frame.sp - 1].get_double(),
@@ -278,14 +265,20 @@ impl VM {
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
+                Inst::irem => {
+                    self.stack[self.bp + frame.sp - 2] = Variable::Int(
+                        self.stack[self.bp + frame.sp - 2].get_int()
+                            % self.stack[self.bp + frame.sp - 1].get_int(),
+                    );
+                    frame.sp -= 1;
+                    frame.pc += 1;
+                }
                 Inst::dneg => {
-                    let mut frame = frame!();
                     self.stack[self.bp + frame.sp - 1] =
                         Variable::Double(-self.stack[self.bp + frame.sp - 1].get_double());
                     frame.pc += 1;
                 }
                 Inst::iinc => {
-                    let mut frame = frame!();
                     let index = code[frame.pc + 1] as usize;
                     let const_ = code[frame.pc + 2];
                     match self.stack[self.bp + index] {
@@ -297,13 +290,11 @@ impl VM {
                     frame.pc += 3;
                 }
                 Inst::i2d => {
-                    let mut frame = frame!();
                     self.stack[self.bp + frame.sp - 1] =
                         Variable::Double(self.stack[self.bp + frame.sp - 1].get_int() as f64);
                     frame.pc += 1;
                 }
                 Inst::i2s => {
-                    let mut frame = frame!();
                     self.stack[self.bp + frame.sp - 1] =
                         Variable::Short(self.stack[self.bp + frame.sp - 1].get_int() as i16);
                     frame.pc += 1;
@@ -322,23 +313,19 @@ impl VM {
                 }
                 Inst::new => self.run_new(),
                 Inst::pop | Inst::pop2 => {
-                    let mut frame = frame!();
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::dup => {
-                    let mut frame = frame!();
                     self.stack[self.bp + frame.sp] = self.stack[self.bp + frame.sp - 1].clone();
                     frame.sp += 1;
                     frame.pc += 1;
                 }
                 Inst::goto => {
-                    let mut frame = frame!();
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                     frame.pc = (frame.pc as isize + branch as isize) as usize;
                 }
                 Inst::dcmpl => {
-                    let mut frame = frame!();
                     let val2 = self.stack[self.bp + frame.sp - 1].get_double();
                     let val1 = self.stack[self.bp + frame.sp - 2].get_double();
                     frame.sp -= 2;
@@ -355,7 +342,6 @@ impl VM {
                     frame.pc += 1;
                 }
                 Inst::ifeq => {
-                    let mut frame = frame!();
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                     let val = self.stack[self.bp + frame.sp - 1].get_int();
                     frame.sp -= 1;
@@ -365,8 +351,17 @@ impl VM {
                         frame.pc += 3;
                     }
                 }
+                Inst::ifne => {
+                    let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
+                    let val = self.stack[self.bp + frame.sp - 1].get_int();
+                    frame.sp -= 1;
+                    if val != 0 {
+                        frame.pc = (frame.pc as isize + branch as isize) as usize;
+                    } else {
+                        frame.pc += 3;
+                    }
+                }
                 Inst::if_icmpne => {
-                    let mut frame = frame!();
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                     let val2 = self.stack[self.bp + frame.sp - 1].get_int();
                     let val1 = self.stack[self.bp + frame.sp - 2].get_int();
@@ -378,7 +373,6 @@ impl VM {
                     frame.sp -= 2;
                 }
                 Inst::if_icmpge => {
-                    let mut frame = frame!();
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                     let val2 = self.stack[self.bp + frame.sp - 1].get_int();
                     let val1 = self.stack[self.bp + frame.sp - 2].get_int();
@@ -390,7 +384,6 @@ impl VM {
                     frame.sp -= 2;
                 }
                 Inst::if_icmpgt => {
-                    let mut frame = frame!();
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                     let val2 = self.stack[self.bp + frame.sp - 1].get_int();
                     let val1 = self.stack[self.bp + frame.sp - 2].get_int();
@@ -402,7 +395,6 @@ impl VM {
                     frame.sp -= 2;
                 }
                 // Inst::ifnonnull => {
-                //     let mut frame = frame!();
                 //     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                 //     let val = self.stack[self.bp + frame.sp - 1].clone();
                 //     if true {
@@ -429,7 +421,6 @@ impl VM {
                 Inst::putfield => self.run_put_field(),
                 Inst::monitorenter => {
                     // TODO: Implement
-                    let mut frame = frame!();
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
@@ -982,14 +973,17 @@ mod Inst {
     pub const dadd:         u8 = 99;
     pub const isub:         u8 = 100;
     pub const dsub:         u8 = 103;
+    pub const imul:         u8 = 104;
     pub const dmul:         u8 = 107;
     pub const ddiv:         u8 = 111;
+    pub const irem:         u8 = 112;
     pub const dneg:         u8 = 119;
     pub const iinc:         u8 = 132;
     pub const i2d:          u8 = 135;
     pub const i2s:          u8 = 147;
     pub const dcmpl:        u8 = 151;
     pub const ifeq:         u8 = 153;
+    pub const ifne:         u8 = 154;
     pub const if_icmpne:    u8 = 160;
     pub const if_icmpge:    u8 = 162;
     pub const if_icmpgt:    u8 = 163;
