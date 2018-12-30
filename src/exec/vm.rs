@@ -8,6 +8,13 @@ use super::frame::{Frame, Variable};
 use super::objectheap::ObjectHeap;
 use ansi_term::Colour;
 
+macro_rules! fld { ($a:path, $b:expr, $( $arg:ident ),*) => {{
+    match $b {
+        $a { $($arg, )* .. } => ($(*$arg as usize),*),
+        _ => panic!()
+    }
+}}; }
+
 #[derive(Debug)]
 pub struct VM {
     pub classheap: GcType<ClassHeap>,
@@ -313,10 +320,7 @@ impl VM {
                     self.run_invoke_static(false);
                     frame!().pc += 3;
                 }
-                Inst::new => {
-                    self.run_new();
-                    frame!().pc += 3;
-                }
+                Inst::new => self.run_new(),
                 Inst::pop | Inst::pop2 => {
                     let mut frame = frame!();
                     frame.sp -= 1;
@@ -535,42 +539,27 @@ impl VM {
 
         let frame = frame!();
         let frame_class = unsafe { &*frame.class.unwrap() };
-        let index =
-            if let Some(Attribute::Code { code, .. }) = frame.method_info.get_code_attribute() {
+        let index = match frame.method_info.get_code_attribute() {
+            Some(Attribute::Code { code, .. }) => {
                 ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
-            } else {
-                panic!()
-            };
+            }
+            _ => panic!(),
+        };
         frame.pc += 3;
 
-        let objectref = if let Variable::Object(body) = self.stack[self.bp + frame.sp - 1] {
-            unsafe { &mut *body }
-        } else {
-            panic!()
-        };
+        let objectref = unsafe { &mut *self.stack[self.bp + frame.sp - 1].get_object() };
         frame.sp -= 1;
 
-        let const_pool = &frame_class.classfile.constant_pool[index];
-        let name_and_type_index = if let Constant::FieldrefInfo {
-            name_and_type_index,
-            ..
-        } = const_pool
-        {
-            *name_and_type_index as usize
-        } else {
-            panic!()
-        };
-
-        let const_pool = &frame_class.classfile.constant_pool[name_and_type_index];
-
-        let name_index = if let Constant::NameAndTypeInfo {
-            name_index,..
-            // descriptor_index,
-        } = const_pool
-        {
-            *name_index as usize
-        }else {panic!()};
-
+        let name_and_type_index = fld!(
+            Constant::FieldrefInfo,
+            &frame_class.classfile.constant_pool[index],
+            name_and_type_index
+        );
+        let name_index = fld!(
+            Constant::NameAndTypeInfo,
+            &frame_class.classfile.constant_pool[name_and_type_index],
+            name_index
+        );
         let name = frame_class.classfile.constant_pool[name_index]
             .get_utf8()
             .unwrap();
@@ -587,43 +576,28 @@ impl VM {
 
         let frame = frame!();
         let frame_class = unsafe { &*frame.class.unwrap() };
-        let index =
-            if let Some(Attribute::Code { code, .. }) = frame.method_info.get_code_attribute() {
+        let index = match frame.method_info.get_code_attribute() {
+            Some(Attribute::Code { code, .. }) => {
                 ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
-            } else {
-                panic!()
-            };
+            }
+            _ => panic!(),
+        };
         frame.pc += 3;
 
-        let objectref = if let Variable::Object(body) = self.stack[self.bp + frame.sp - 2] {
-            unsafe { &mut *body }
-        } else {
-            panic!()
-        };
+        let objectref = unsafe { &mut *self.stack[self.bp + frame.sp - 2].get_object() };
         let value = self.stack[self.bp + frame.sp - 1].clone();
         frame.sp -= 2;
 
-        let const_pool = &frame_class.classfile.constant_pool[index];
-        let name_and_type_index = if let Constant::FieldrefInfo {
-            name_and_type_index,
-            ..
-        } = const_pool
-        {
-            *name_and_type_index as usize
-        } else {
-            panic!()
-        };
-
-        let const_pool = &frame_class.classfile.constant_pool[name_and_type_index];
-
-        let name_index = if let Constant::NameAndTypeInfo {
-            name_index,..
-            // descriptor_index,
-        } = const_pool
-        {
-            *name_index as usize
-        }else {panic!()};
-
+        let name_and_type_index = fld!(
+            Constant::FieldrefInfo,
+            &frame_class.classfile.constant_pool[index],
+            name_and_type_index
+        );
+        let name_index = fld!(
+            Constant::NameAndTypeInfo,
+            &frame_class.classfile.constant_pool[name_and_type_index],
+            name_index
+        );
         let name = frame_class.classfile.constant_pool[name_index]
             .get_utf8()
             .unwrap();
@@ -637,61 +611,39 @@ impl VM {
 
         let frame = frame!();
         let frame_class = unsafe { &*frame.class.unwrap() };
-        let code =
-            if let Some(Attribute::Code { code, .. }) = frame.method_info.get_code_attribute() {
-                code.clone()
-            } else {
-                panic!()
-            };
-        let index = ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize;
+        let index = match frame.method_info.get_code_attribute() {
+            Some(Attribute::Code { code, .. }) => {
+                ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
+            }
+            _ => panic!(),
+        };
         frame.pc += 3;
 
-        let const_pool = frame_class.classfile.constant_pool[index].clone();
-        let (class_index, name_and_type_index) = if let Constant::FieldrefInfo {
+        let (class_index, name_and_type_index) = fld!(
+            Constant::FieldrefInfo,
+            &frame_class.classfile.constant_pool[index],
             class_index,
-            name_and_type_index,
-        } = const_pool
-        {
-            (class_index as usize, name_and_type_index as usize)
-        } else {
-            panic!()
-        };
-
-        let const_pool = frame_class.classfile.constant_pool[class_index as usize].clone();
-        let name_index = if let Constant::ClassInfo { name_index } = const_pool {
+            name_and_type_index
+        );
+        let name_index = fld!(
+            Constant::ClassInfo,
+            &frame_class.classfile.constant_pool[class_index],
             name_index
-        } else {
-            panic!()
-        };
-
+        );
         let class_name = frame_class.classfile.constant_pool[name_index as usize]
             .get_utf8()
             .unwrap();
-
         let class = load_class(self.classheap, self.objectheap, class_name);
-
-        let const_pool = frame_class.classfile.constant_pool[name_and_type_index].clone();
-
-        let mut method = MethodInfo::new();
-
-        if let Constant::NameAndTypeInfo {
-            name_index,
-            descriptor_index,
-        } = const_pool
-        {
-            method.name_index = name_index;
-            method.descriptor_index = descriptor_index;
-        }
-
-        method.access_flags = 0;
-
-        let name = frame_class.classfile.constant_pool[method.name_index as usize]
+        let name_index = fld!(
+            Constant::NameAndTypeInfo,
+            &frame_class.classfile.constant_pool[name_and_type_index],
+            name_index
+        );
+        let name = frame_class.classfile.constant_pool[name_index as usize]
             .get_utf8()
             .unwrap();
+
         // TODO: ``descriptor`` will be necessary to verify the field's type.
-        // let descriptor = frame_class.classfile.constant_pool[method.descriptor_index as usize]
-        //     .get_utf8()
-        //     .unwrap();
 
         let object = unsafe { &*class }
             .get_static_variable(name.as_str())
@@ -707,64 +659,39 @@ impl VM {
 
         let frame = frame!();
         let frame_class = unsafe { &*frame.class.unwrap() };
-        let code =
-            if let Some(Attribute::Code { code, .. }) = frame.method_info.get_code_attribute() {
-                code.clone()
-            } else {
-                panic!()
-            };
-        let index = ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize;
+        let index = match frame.method_info.get_code_attribute() {
+            Some(Attribute::Code { code, .. }) => {
+                ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
+            }
+            _ => panic!(),
+        };
         frame.pc += 3;
 
-        let const_pool = frame_class.classfile.constant_pool[index].clone();
-        let (class_index, name_and_type_index) = if let Constant::FieldrefInfo {
+        let (class_index, name_and_type_index) = fld!(
+            Constant::FieldrefInfo,
+            &frame_class.classfile.constant_pool[index],
             class_index,
-            name_and_type_index,
-        } = const_pool
-        {
-            (class_index as usize, name_and_type_index as usize)
-        } else {
-            panic!()
-        };
-
-        let const_pool = frame_class.classfile.constant_pool[class_index as usize].clone();
-        let name_index = if let Constant::ClassInfo { name_index } = const_pool {
+            name_and_type_index
+        );
+        let name_index = fld!(
+            Constant::ClassInfo,
+            &frame_class.classfile.constant_pool[class_index],
             name_index
-        } else {
-            panic!()
-        };
-
+        );
         let class_name = frame_class.classfile.constant_pool[name_index as usize]
             .get_utf8()
             .unwrap();
-
-        let class = *unsafe { &*self.classheap }
-            .class_map
-            .get(class_name)
-            .unwrap();
-
-        let const_pool = frame_class.classfile.constant_pool[name_and_type_index].clone();
-
-        let mut method = MethodInfo::new();
-
-        if let Constant::NameAndTypeInfo {
-            name_index,
-            descriptor_index,
-        } = const_pool
-        {
-            method.name_index = name_index;
-            method.descriptor_index = descriptor_index;
-        }
-
-        method.access_flags = 0;
-
-        let name = frame_class.classfile.constant_pool[method.name_index as usize]
+        let class = load_class(self.classheap, self.objectheap, class_name);
+        let name_index = fld!(
+            Constant::NameAndTypeInfo,
+            &frame_class.classfile.constant_pool[name_and_type_index],
+            name_index
+        );
+        let name = frame_class.classfile.constant_pool[name_index as usize]
             .get_utf8()
             .unwrap();
+
         // TODO: ``descriptor`` will be necessary to verify the field's type.
-        // let descriptor = frame_class.classfile.constant_pool[method.descriptor_index as usize]
-        //     .get_utf8()
-        //     .unwrap();
 
         let val = self.stack[self.bp + frame.sp - 1].clone();
         frame.sp -= 1;
@@ -778,49 +705,35 @@ impl VM {
 
         let frame = frame!();
         let frame_class = unsafe { &*frame.class.unwrap() };
-        let mref_index =
-            if let Some(Attribute::Code { code, .. }) = frame.method_info.get_code_attribute() {
+        let mref_index = match frame.method_info.get_code_attribute() {
+            Some(Attribute::Code { code, .. }) => {
                 ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
-            } else {
-                panic!()
-            };
-        let const_pool = frame_class.classfile.constant_pool[mref_index].clone();
-
-        let (class_index, name_and_type_index) = if let Constant::MethodrefInfo {
+            }
+            _ => panic!(),
+        };
+        let (class_index, name_and_type_index) = fld!(
+            Constant::MethodrefInfo,
+            &frame_class.classfile.constant_pool[mref_index],
             class_index,
-            name_and_type_index,
-        } = const_pool
-        {
-            (class_index, name_and_type_index)
-        } else {
-            panic!()
-        };
-
-        let const_pool = frame_class.classfile.constant_pool[class_index as usize].clone();
-
-        let name_index = if let Constant::ClassInfo { name_index } = const_pool {
+            name_and_type_index
+        );
+        let name_index = fld!(
+            Constant::ClassInfo,
+            &frame_class.classfile.constant_pool[class_index],
             name_index
-        } else {
-            panic!()
-        };
-
+        );
         let class_name = frame_class.classfile.constant_pool[name_index as usize]
             .get_utf8()
             .unwrap();
-
         let class = load_class(self.classheap, self.objectheap, class_name);
-
-        let const_pool = frame_class.classfile.constant_pool[name_and_type_index as usize].clone();
-
         let mut method = MethodInfo::new();
-
         if let Constant::NameAndTypeInfo {
             name_index,
             descriptor_index,
-        } = const_pool
+        } = &frame_class.classfile.constant_pool[name_and_type_index]
         {
-            method.name_index = name_index;
-            method.descriptor_index = descriptor_index;
+            method.name_index = *name_index;
+            method.descriptor_index = *descriptor_index;
         }
 
         method.access_flags = 0;
@@ -831,9 +744,6 @@ impl VM {
         let descriptor = frame_class.classfile.constant_pool[method.descriptor_index as usize]
             .get_utf8()
             .unwrap();
-
-        // println!("invoke: {}.{}:{}", class_name, name, descriptor);
-
         let (virtual_class, method2) = unsafe { &*class }.get_method(name, descriptor).unwrap();
 
         let former_sp = frame.sp as usize;
@@ -916,32 +826,26 @@ impl VM {
 
         let frame = frame!();
         let frame_class = unsafe { &*frame.class.unwrap() };
-        let class_index =
-            if let Some(Attribute::Code { code, .. }) = frame.method_info.get_code_attribute() {
+        let class_index = match frame.method_info.get_code_attribute() {
+            Some(Attribute::Code { code, .. }) => {
                 ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
-            } else {
-                panic!()
-            };
-        let const_pool = frame_class.classfile.constant_pool[class_index].clone();
-
-        let name_index = if let Constant::ClassInfo { name_index } = const_pool {
-            name_index
-        } else {
-            panic!()
+            }
+            _ => panic!(),
         };
+        frame.pc += 3;
 
+        let name_index = fld!(
+            Constant::ClassInfo,
+            &frame_class.classfile.constant_pool[class_index],
+            name_index
+        );
         let class_name = frame_class.classfile.constant_pool[name_index as usize]
             .get_utf8()
             .unwrap();
-
-        // println!("> {}", class_name);
-
         let class = load_class(self.classheap, self.objectheap, class_name);
-
         let object = unsafe { &mut *self.objectheap }.create_object(class);
 
         self.stack[self.bp + frame.sp] = object;
-
         frame.sp += 1;
     }
 }
