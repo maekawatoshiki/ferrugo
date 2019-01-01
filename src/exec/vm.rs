@@ -4,6 +4,7 @@ use super::super::class::classfile::constant::Constant;
 use super::super::class::classfile::method::MethodInfo;
 use super::super::class::classheap::ClassHeap;
 use super::super::gc::{gc, gc::GcType};
+use super::cfg::CFGMaker;
 use super::frame::{AType, Array, Frame, Variable};
 use super::objectheap::ObjectHeap;
 use ansi_term::Colour;
@@ -996,7 +997,7 @@ pub fn load_class(
 #[rustfmt::skip]
 #[allow(non_upper_case_globals)]
 #[allow(non_snake_case)]
-mod Inst {
+pub mod Inst {
     pub type Code = u8;
     pub const iconst_m1:    u8 = 2;
     pub const iconst_0:     u8 = 3;
