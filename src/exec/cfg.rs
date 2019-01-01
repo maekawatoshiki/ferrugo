@@ -11,7 +11,7 @@ pub struct Block {
 #[derive(Clone, Debug, PartialEq)]
 enum BrKind {
     ConditionalJmp { destinations: Vec<usize> },
-    UnconditionalJmp,
+    UnconditionalJmp { destination: usize },
     BlockStart,
 }
 
@@ -26,17 +26,6 @@ impl CFGMaker {
 
 impl CFGMaker {
     pub fn make(&mut self, code: &Vec<Inst::Code>) {
-        // 0: iconst_0
-        // 1: istore_1
-        // 2: iload_1
-        // 3: iconst_1
-        // 4: if_icmpne     11
-        // 7: iconst_2
-        // 8: goto          12
-        // 11: iconst_3
-        // 12: istore_2
-        // 13: return
-
         let mut map = BTreeMap::new();
         let mut pc = 0;
 
@@ -48,21 +37,6 @@ impl CFGMaker {
             let cur_code = code[pc];
 
             match cur_code {
-                Inst::iconst_m1
-                | Inst::iconst_0
-                | Inst::iconst_1
-                | Inst::iconst_2
-                | Inst::iconst_3
-                | Inst::iconst_4
-                | Inst::iconst_5 => {
-                    pc += 1;
-                }
-                Inst::istore_0 | Inst::istore_1 | Inst::istore_2 | Inst::istore_3 => {
-                    pc += 1;
-                }
-                Inst::iload_0 | Inst::iload_1 | Inst::iload_2 | Inst::iload_3 => {
-                    pc += 1;
-                }
                 Inst::if_icmpne => {
                     let branch = ((code[pc + 1] as i16) << 8) + code[pc + 2] as i16;
                     let dst = (pc as isize + branch as isize) as usize;
@@ -79,17 +53,11 @@ impl CFGMaker {
                 Inst::goto => {
                     let branch = ((code[pc + 1] as i16) << 8) + code[pc + 2] as i16;
                     let dst = (pc as isize + branch as isize) as usize;
-                    map.insert(pc + 3 - 1, BrKind::UnconditionalJmp);
+                    map.insert(pc + 3 - 1, BrKind::UnconditionalJmp { destination: dst });
                     map.insert(dst, BrKind::BlockStart);
                     pc += 3;
                 }
-                Inst::iinc => {
-                    pc += 3;
-                }
-                Inst::return_ => {
-                    pc += 1;
-                }
-                e => unimplemented!("{}", e),
+                code => pc += Inst::get_inst_size(code),
             }
         }
 
@@ -123,7 +91,7 @@ impl CFGMaker {
                     blocks.push(Block {
                         code: code[cur.unwrap()..key].to_vec(),
                         start: cur.unwrap(),
-                        kind,
+                        kind: BrKind::UnconditionalJmp { destination: key },
                     });
                 }
                 cur = Some(key);
