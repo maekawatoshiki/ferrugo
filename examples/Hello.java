@@ -68,50 +68,52 @@ class Hello {
   }
 
   public static void main(String[] args) {
-    System.out.println(123);
-    System.out.println(123456789);
-    System.out.println(calc_pi());
-    
-    char a = 'a';
-    short x = 6553, y = 3;
-    x += y;
-    
-    fibo(1); 
-    for (int i = 1; i <= 20; i++)
-      System.out.println(fibo(i));
-    
-    Point p = new Point();
-    p.x = 2;
-    p.y = 3;
-    p.show();
-    
-    int z = 2;
-    if (z == 2) {
-      z = 3;
-    } else {
-      z = 5;
-    }
-    System.out.println(z);
-    
-    Person person = new Person("uint256_t");
-    person.show();
-    Teacher eng = new Teacher("uint256_t", "English");
-    eng.show();
-    
-    for (int i = 1; i <= 50; i++) {
-      if (is_prime(i)) System.out.println(i + " is prime");
-    }
-    
-    int arr[] = new int[8];
-    for (int i = 0; i < 8; i++) 
-      arr[i] = i * 2;
-    for (int i = 0; i < 8; i++) 
-      System.out.println("arr[" + i + "] = " + arr[i]);
-
-    Person people[] = new Person[2];
-    people[0] = new Person("ken");
-    people[0].show();
-    people[1] = new Person("david");
-    people[1].show();
+    int i = 0;
+    int k = i == 1 ? 2 : 3;
+    // System.out.println(123);
+    // System.out.println(123456789);
+    // System.out.println(calc_pi());
+    //
+    // char a = 'a';
+    // short x = 6553, y = 3;
+    // x += y;
+    //
+    // fibo(1); 
+    // for (int i = 1; i <= 20; i++)
+    //   System.out.println(fibo(i));
+    //
+    // Point p = new Point();
+    // p.x = 2;
+    // p.y = 3;
+    // p.show();
+    //
+    // int z = 2;
+    // if (z == 2) {
+    //   z = 3;
+    // } else {
+    //   z = 5;
+    // }
+    // System.out.println(z);
+    //
+    // Person person = new Person("uint256_t");
+    // person.show();
+    // Teacher eng = new Teacher("uint256_t", "English");
+    // eng.show();
+    //
+    // for (int i = 1; i <= 50; i++) {
+    //   if (is_prime(i)) System.out.println(i + " is prime");
+    // }
+    //
+    // int arr[] = new int[8];
+    // for (int i = 0; i < 8; i++) 
+    //   arr[i] = i * 2;
+    // for (int i = 0; i < 8; i++) 
+    //   System.out.println("arr[" + i + "] = " + arr[i]);
+    //
+    // Person people[] = new Person[2];
+    // people[0] = new Person("ken");
+    // people[0].show();
+    // people[1] = new Person("david");
+    // people[1].show();
   }
 }
