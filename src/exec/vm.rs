@@ -136,6 +136,14 @@ impl VM {
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
+                Inst::aaload => {
+                    let arrayref = self.stack[self.bp + frame.sp - 2].get_pointer::<Array>();
+                    let index = self.stack[self.bp + frame.sp - 1].get_int() as usize;
+                    self.stack[self.bp + frame.sp - 2] =
+                        unsafe { &*arrayref }.elements[index].clone();
+                    frame.sp -= 1;
+                    frame.pc += 1;
+                }
                 Inst::sipush => {
                     let val = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                     self.stack[self.bp + frame.sp] = Variable::Short(val);
@@ -213,6 +221,14 @@ impl VM {
                     frame.pc += 1;
                 }
                 Inst::iastore => {
+                    let arrayref = self.stack[self.bp + frame.sp - 3].get_pointer::<Array>();
+                    let index = self.stack[self.bp + frame.sp - 2].get_int() as usize;
+                    let value = self.stack[self.bp + frame.sp - 1].clone();
+                    unsafe { &mut *arrayref }.elements[index] = value;
+                    frame.sp -= 3;
+                    frame.pc += 1;
+                }
+                Inst::aastore => {
                     let arrayref = self.stack[self.bp + frame.sp - 3].get_pointer::<Array>();
                     let index = self.stack[self.bp + frame.sp - 2].get_int() as usize;
                     let value = self.stack[self.bp + frame.sp - 1].clone();
@@ -315,20 +331,12 @@ impl VM {
                         Variable::Short(self.stack[self.bp + frame.sp - 1].get_int() as i16);
                     frame.pc += 1;
                 }
-                Inst::invokestatic => {
-                    self.run_invoke_static(true);
-                    frame!().pc += 3;
-                }
-                Inst::invokespecial => {
-                    self.run_invoke_static(false);
-                    frame!().pc += 3;
-                }
-                Inst::invokevirtual => {
-                    self.run_invoke_static(false);
-                    frame!().pc += 3;
-                }
+                Inst::invokestatic => self.run_invoke_static(true),
+                Inst::invokespecial => self.run_invoke_static(false),
+                Inst::invokevirtual => self.run_invoke_static(false),
                 Inst::new => self.run_new(),
                 Inst::newarray => self.run_new_array(),
+                Inst::anewarray => self.run_new_obj_array(),
                 Inst::pop | Inst::pop2 => {
                     frame.sp -= 1;
                     frame.pc += 1;
@@ -726,6 +734,7 @@ impl VM {
             }
             _ => panic!(),
         };
+        frame.pc += 3;
         let (class_index, name_and_type_index) = fld!(
             Constant::MethodrefInfo,
             &frame_class.classfile.constant_pool[mref_index],
@@ -836,10 +845,7 @@ impl VM {
     }
 
     fn run_new_array(&mut self) {
-        #[rustfmt::skip]
-        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
-
-        let frame = frame!();
+        let frame = self.frame_stack.last_mut().unwrap();
         let atype = match frame.method_info.get_code_attribute() {
             Some(Attribute::Code { code, .. }) => {
                 let atype = code[frame.pc + 1] as usize;
@@ -852,6 +858,32 @@ impl VM {
         let size = self.stack[self.bp + frame.sp - 1].get_int() as usize;
         self.stack[self.bp + frame.sp - 1] =
             unsafe { &mut *self.objectheap }.create_array(atype, size);
+    }
+
+    fn run_new_obj_array(&mut self) {
+        let frame = self.frame_stack.last_mut().unwrap();
+        let frame_class = unsafe { &*frame.class.unwrap() };
+        let class_index = match frame.method_info.get_code_attribute() {
+            Some(Attribute::Code { code, .. }) => {
+                ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
+            }
+            _ => panic!(),
+        };
+        frame.pc += 3;
+
+        let name_index = fld!(
+            Constant::ClassInfo,
+            &frame_class.classfile.constant_pool[class_index],
+            name_index
+        );
+        let class_name = frame_class.classfile.constant_pool[name_index]
+            .get_utf8()
+            .unwrap();
+        let class = load_class(self.classheap, self.objectheap, class_name);
+
+        let size = self.stack[self.bp + frame.sp - 1].get_int() as usize;
+        self.stack[self.bp + frame.sp - 1] =
+            unsafe { &mut *self.objectheap }.create_obj_array(class, size);
     }
 
     fn run_new(&mut self) {
@@ -1000,6 +1032,7 @@ mod Inst {
     pub const dload_2:      u8 = 40;
     pub const dload_3:      u8 = 41;
     pub const iaload:       u8 = 46;
+    pub const aaload:       u8 = 50;
     pub const dstore:       u8 = 57;
     pub const astore:       u8 = 58;
     pub const dstore_0:     u8 = 71;
@@ -1011,6 +1044,7 @@ mod Inst {
     pub const astore_2:     u8 = 77;
     pub const astore_3:     u8 = 78;
     pub const iastore:      u8 = 79;
+    pub const aastore:      u8 = 83;
     pub const pop:          u8 = 87;
     pub const pop2:         u8 = 88;
     pub const dup:          u8 = 89;
@@ -1045,6 +1079,7 @@ mod Inst {
     pub const invokestatic: u8 = 184;
     pub const new:          u8 = 187;
     pub const newarray:     u8 = 188;
+    pub const anewarray:    u8 = 189;
     pub const monitorenter: u8 = 194;
     // pub const ifnonnull:    u8 = 199;
 }

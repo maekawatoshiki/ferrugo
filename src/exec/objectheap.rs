@@ -58,4 +58,19 @@ impl ObjectHeap {
 
         Variable::Pointer(gc::new(array) as GcType<u64>)
     }
+
+    pub fn create_obj_array(&mut self, class: GcType<Class>, size: usize) -> Variable {
+        let array = Array {
+            atype: AType::Class(class),
+            elements: {
+                let mut elements = vec![];
+                for _ in 0..size {
+                    elements.push(Variable::Pointer(0 as *mut u64));
+                }
+                elements
+            },
+        };
+
+        Variable::Pointer(gc::new(array) as GcType<u64>)
+    }
 }

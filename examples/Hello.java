@@ -101,11 +101,17 @@ class Hello {
     for (int i = 1; i <= 50; i++) {
       if (is_prime(i)) System.out.println(i + " is prime");
     }
-
+    
     int arr[] = new int[8];
     for (int i = 0; i < 8; i++) 
       arr[i] = i * 2;
     for (int i = 0; i < 8; i++) 
       System.out.println("arr[" + i + "] = " + arr[i]);
+
+    Person people[] = new Person[2];
+    people[0] = new Person("ken");
+    people[0].show();
+    people[1] = new Person("david");
+    people[1].show();
   }
 }

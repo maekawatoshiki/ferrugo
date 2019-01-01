@@ -49,6 +49,7 @@ pub enum AType {
     Short,
     Int,
     Long,
+    Class(GcType<Class>),
 }
 
 #[derive(Debug, Clone)]
@@ -83,6 +84,7 @@ impl AType {
             AType::Short => 9,
             AType::Int => 10,
             AType::Long => 11,
+            AType::Class(_) => panic!(),
         }
     }
 }
