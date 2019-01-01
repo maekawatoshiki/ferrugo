@@ -1,5 +1,5 @@
 use super::vm::Inst;
-use rustc_hash::FxHashMap;
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone)]
 pub struct CFGMaker {}
@@ -23,7 +23,7 @@ impl CFGMaker {
         // 12: istore_2
         // 13: return
 
-        let mut map = FxHashMap::default();
+        let mut map = BTreeSet::new();
         let mut pc = 0;
 
         loop {
@@ -52,14 +52,19 @@ impl CFGMaker {
                 Inst::if_icmpne => {
                     let branch = ((code[pc + 1] as i16) << 8) + code[pc + 2] as i16;
                     let dst = (pc as isize + branch as isize) as usize;
-                    map.entry(pc).or_insert(vec![]).push(dst);
-                    map.get_mut(&pc).unwrap().push(pc + 3);
+                    map.insert((pc, true));
+                    map.insert((dst, false));
+                    map.insert((pc + 3, false));
                     pc += 3;
                 }
                 Inst::goto => {
                     let branch = ((code[pc + 1] as i16) << 8) + code[pc + 2] as i16;
                     let dst = (pc as isize + branch as isize) as usize;
-                    map.entry(pc).or_insert(vec![]).push(dst);
+                    map.insert((pc, true));
+                    map.insert((dst, false));
+                    pc += 3;
+                }
+                Inst::iinc => {
                     pc += 3;
                 }
                 Inst::return_ => {
@@ -69,8 +74,24 @@ impl CFGMaker {
             }
         }
 
-        for (key, val) in map {
-            println!("{} -> {:?}", key, val);
+        let mut cur = Some(0);
+        for (key, is_jmp) in map {
+            if is_jmp {
+                if cur.is_some() {
+                    println!("[{}, {}]", cur.unwrap(), key);
+                    cur = None;
+                }
+            } else {
+                if cur.is_some() {
+                    println!("[{}, {})", cur.unwrap(), key);
+                    cur = Some(key);
+                } else {
+                    cur = Some(key);
+                }
+            }
+        }
+        if cur.is_some() {
+            println!("[{}, {})", cur.unwrap(), code.len())
         }
 
         loop {
