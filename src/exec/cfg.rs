@@ -12,7 +12,24 @@ pub struct Block {
 pub enum BrKind {
     ConditionalJmp { destinations: Vec<usize> },
     UnconditionalJmp { destination: usize },
+    JmpRequired { destination: usize },
     BlockStart,
+}
+
+impl BrKind {
+    pub fn get_conditional_jump_destinations(&self) -> &Vec<usize> {
+        match self {
+            BrKind::ConditionalJmp { destinations } => destinations,
+            _ => panic!(),
+        }
+    }
+
+    pub fn get_unconditional_jump_destination(&self) -> usize {
+        match self {
+            BrKind::UnconditionalJmp { destination } => *destination,
+            _ => panic!(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -91,7 +108,7 @@ impl CFGMaker {
                     blocks.push(Block {
                         code: code[cur.unwrap()..key].to_vec(),
                         start: cur.unwrap(),
-                        kind: BrKind::UnconditionalJmp { destination: key },
+                        kind: BrKind::JmpRequired { destination: key },
                     });
                 }
                 cur = Some(key);

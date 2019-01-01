@@ -69,7 +69,12 @@ class Hello {
 
   public static void main(String[] args) {
     int i = 0;
-    i = i == 3 ? 4:5;
+    // while (i == 5) {
+    //   i += 1;
+    // }
+    i = i == 3 ? 
+      i == 4 ? 5 : 1
+      : 2;
     // while (i == 3) { i += 1; }
     // int k = i == 1 ? 2 : 3;
     // System.out.println(123);
