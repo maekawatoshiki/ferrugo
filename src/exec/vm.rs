@@ -4,7 +4,7 @@ use super::super::class::classfile::constant::Constant;
 use super::super::class::classfile::method::MethodInfo;
 use super::super::class::classheap::ClassHeap;
 use super::super::gc::{gc, gc::GcType};
-use super::frame::{Frame, Variable};
+use super::frame::{AType, Array, Frame, Variable};
 use super::objectheap::ObjectHeap;
 use ansi_term::Colour;
 
@@ -128,6 +128,14 @@ impl VM {
                     frame.sp += 1;
                     frame.pc += 1;
                 }
+                Inst::iaload => {
+                    let arrayref = self.stack[self.bp + frame.sp - 2].get_pointer::<Array>();
+                    let index = self.stack[self.bp + frame.sp - 1].get_int() as usize;
+                    self.stack[self.bp + frame.sp - 2] =
+                        unsafe { &*arrayref }.elements[index].clone();
+                    frame.sp -= 1;
+                    frame.pc += 1;
+                }
                 Inst::sipush => {
                     let val = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                     self.stack[self.bp + frame.sp] = Variable::Short(val);
@@ -202,6 +210,14 @@ impl VM {
                     self.stack[self.bp + (cur_code as usize - Inst::astore_0 as usize)] =
                         self.stack[self.bp + frame.sp - 1].clone();
                     frame.sp -= 1;
+                    frame.pc += 1;
+                }
+                Inst::iastore => {
+                    let arrayref = self.stack[self.bp + frame.sp - 3].get_pointer::<Array>();
+                    let index = self.stack[self.bp + frame.sp - 2].get_int() as usize;
+                    let value = self.stack[self.bp + frame.sp - 1].clone();
+                    unsafe { &mut *arrayref }.elements[index] = value;
+                    frame.sp -= 3;
                     frame.pc += 1;
                 }
                 Inst::bipush => {
@@ -312,6 +328,7 @@ impl VM {
                     frame!().pc += 3;
                 }
                 Inst::new => self.run_new(),
+                Inst::newarray => self.run_new_array(),
                 Inst::pop | Inst::pop2 => {
                     frame.sp -= 1;
                     frame.pc += 1;
@@ -455,7 +472,11 @@ impl VM {
                     _ => panic!(),
                 };
                 println!("{}", unsafe {
-                    &*(object_body.variables.get("str").unwrap().get_pointer() as GcType<String>)
+                    &*(object_body
+                        .variables
+                        .get("str")
+                        .unwrap()
+                        .get_pointer::<String>())
                 });
             }
             // static
@@ -472,7 +493,7 @@ impl VM {
                 let append_str = match &self.stack[self.bp + frame.sp - 1] {
                     Variable::Object(body) => unsafe {
                         let string = &mut **body;
-                        &*(string.variables.get("str").unwrap().get_pointer() as GcType<String>)
+                        &*(string.variables.get("str").unwrap().get_pointer::<String>())
                     },
                     _ => panic!(),
                 };
@@ -485,8 +506,11 @@ impl VM {
                                 objectheap.create_string_object("".to_string(), self.classheap),
                             )
                             .get_object();
-                        &mut *(string.variables.get_mut("str").unwrap().get_pointer()
-                            as GcType<String>)
+                        &mut *(string
+                            .variables
+                            .get_mut("str")
+                            .unwrap()
+                            .get_pointer::<String>())
                     }
                 };
                 string.push_str(append_str);
@@ -811,6 +835,25 @@ impl VM {
         }
     }
 
+    fn run_new_array(&mut self) {
+        #[rustfmt::skip]
+        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
+
+        let frame = frame!();
+        let atype = match frame.method_info.get_code_attribute() {
+            Some(Attribute::Code { code, .. }) => {
+                let atype = code[frame.pc + 1] as usize;
+                AType::to_atype(atype)
+            }
+            _ => panic!(),
+        };
+        frame.pc += 2;
+
+        let size = self.stack[self.bp + frame.sp - 1].get_int() as usize;
+        self.stack[self.bp + frame.sp - 1] =
+            unsafe { &mut *self.objectheap }.create_array(atype, size);
+    }
+
     fn run_new(&mut self) {
         #[rustfmt::skip]
         macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
@@ -956,6 +999,7 @@ mod Inst {
     pub const dload_1:      u8 = 39;
     pub const dload_2:      u8 = 40;
     pub const dload_3:      u8 = 41;
+    pub const iaload:       u8 = 46;
     pub const dstore:       u8 = 57;
     pub const astore:       u8 = 58;
     pub const dstore_0:     u8 = 71;
@@ -966,6 +1010,7 @@ mod Inst {
     pub const astore_1:     u8 = 76;
     pub const astore_2:     u8 = 77;
     pub const astore_3:     u8 = 78;
+    pub const iastore:      u8 = 79;
     pub const pop:          u8 = 87;
     pub const pop2:         u8 = 88;
     pub const dup:          u8 = 89;
@@ -999,6 +1044,7 @@ mod Inst {
     pub const invokespecial:u8 = 183;
     pub const invokestatic: u8 = 184;
     pub const new:          u8 = 187;
+    pub const newarray:     u8 = 188;
     pub const monitorenter: u8 = 194;
     // pub const ifnonnull:    u8 = 199;
 }

@@ -1,7 +1,7 @@
 use super::super::class::{class::Class, classheap::ClassHeap};
 use super::super::exec::vm::load_class;
 use super::super::gc::{gc, gc::GcType};
-use super::frame::{ObjectBody, Variable};
+use super::frame::{AType, Array, ObjectBody, Variable};
 use rustc_hash::FxHashMap;
 
 #[derive(Clone, Debug)]
@@ -42,5 +42,20 @@ impl ObjectHeap {
         );
 
         object
+    }
+
+    pub fn create_array(&mut self, atype: AType, size: usize) -> Variable {
+        let array = Array {
+            atype,
+            elements: {
+                let mut elements = vec![];
+                for _ in 0..size {
+                    elements.push(Variable::Int(0));
+                }
+                elements
+            },
+        };
+
+        Variable::Pointer(gc::new(array) as GcType<u64>)
     }
 }

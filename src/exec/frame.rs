@@ -39,6 +39,54 @@ pub struct ObjectBody {
     pub variables: FxHashMap<String, Variable>,
 }
 
+#[derive(Debug, Clone)]
+pub enum AType {
+    Boolean,
+    Char,
+    Float,
+    Double,
+    Byte,
+    Short,
+    Int,
+    Long,
+}
+
+#[derive(Debug, Clone)]
+pub struct Array {
+    pub atype: AType,
+    pub elements: Vec<Variable>,
+}
+
+impl AType {
+    // https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-6.html#jvms-6.5.sastore
+    pub fn to_atype(n: usize) -> AType {
+        match n {
+            4 => AType::Boolean,
+            5 => AType::Char,
+            6 => AType::Float,
+            7 => AType::Double,
+            8 => AType::Byte,
+            9 => AType::Short,
+            10 => AType::Int,
+            11 => AType::Long,
+            _ => panic!(),
+        }
+    }
+
+    pub fn to_num(&self) -> usize {
+        match self {
+            AType::Boolean => 4,
+            AType::Char => 5,
+            AType::Float => 6,
+            AType::Double => 7,
+            AType::Byte => 8,
+            AType::Short => 9,
+            AType::Int => 10,
+            AType::Long => 11,
+        }
+    }
+}
+
 impl Variable {
     pub fn get_int(&self) -> i32 {
         match self {
@@ -56,9 +104,9 @@ impl Variable {
         }
     }
 
-    pub fn get_pointer(&self) -> GcType<u64> {
+    pub fn get_pointer<T>(&self) -> GcType<T> {
         match self {
-            Variable::Pointer(ptr) => *ptr,
+            Variable::Pointer(ptr) => *ptr as GcType<T>,
             _ => panic!("hmm"),
         }
     }

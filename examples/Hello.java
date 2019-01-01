@@ -84,22 +84,28 @@ class Hello {
     p.x = 2;
     p.y = 3;
     p.show();
-
-    int i = 2;
-    if (i == 2) {
-      i = 3;
+    
+    int z = 2;
+    if (z == 2) {
+      z = 3;
     } else {
-      i = 5;
+      z = 5;
     }
-    System.out.println(i);
-
+    System.out.println(z);
+    
     Person person = new Person("uint256_t");
     person.show();
     Teacher eng = new Teacher("uint256_t", "English");
     eng.show();
-
-    for (i = 1; i <= 50000; i++) {
+    
+    for (int i = 1; i <= 50; i++) {
       if (is_prime(i)) System.out.println(i + " is prime");
     }
+
+    int arr[] = new int[8];
+    for (int i = 0; i < 8; i++) 
+      arr[i] = i * 2;
+    for (int i = 0; i < 8; i++) 
+      System.out.println("arr[" + i + "] = " + arr[i]);
   }
 }
