@@ -1,4 +1,5 @@
 use super::vm::Inst;
+use rustc_hash::FxHashMap;
 
 #[derive(Debug, Clone)]
 pub struct CFGMaker {}
@@ -22,6 +23,7 @@ impl CFGMaker {
         // 12: istore_2
         // 13: return
 
+        let mut map = FxHashMap::default();
         let mut pc = 0;
 
         loop {
@@ -48,9 +50,16 @@ impl CFGMaker {
                     pc += 1;
                 }
                 Inst::if_icmpne => {
+                    let branch = ((code[pc + 1] as i16) << 8) + code[pc + 2] as i16;
+                    let dst = (pc as isize + branch as isize) as usize;
+                    map.entry(pc).or_insert(vec![]).push(dst);
+                    map.get_mut(&pc).unwrap().push(pc + 3);
                     pc += 3;
                 }
                 Inst::goto => {
+                    let branch = ((code[pc + 1] as i16) << 8) + code[pc + 2] as i16;
+                    let dst = (pc as isize + branch as isize) as usize;
+                    map.entry(pc).or_insert(vec![]).push(dst);
                     pc += 3;
                 }
                 Inst::return_ => {
@@ -59,7 +68,10 @@ impl CFGMaker {
                 e => unimplemented!("{}", e),
             }
         }
-        println!("hi");
+
+        for (key, val) in map {
+            println!("{} -> {:?}", key, val);
+        }
 
         loop {
             if pc >= code.len() {
