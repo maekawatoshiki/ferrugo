@@ -6,6 +6,7 @@ use super::super::class::classheap::ClassHeap;
 use super::super::gc::{gc, gc::GcType};
 use super::cfg::CFGMaker;
 use super::frame::{AType, Array, Frame, Variable};
+use super::jit::JIT;
 use super::objectheap::ObjectHeap;
 use ansi_term::Colour;
 
@@ -74,7 +75,11 @@ impl VM {
             .get_utf8_from_const_pool(frame.method_info.name_index as usize)
             .unwrap();
         if string == "main" {
-            CFGMaker::new().make(&code);
+            let blocks = CFGMaker::new().make(&code);
+            unsafe {
+                let mut jit = JIT::new();
+                jit.compile(&blocks);
+            }
         }
 
         loop {
