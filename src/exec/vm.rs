@@ -70,6 +70,13 @@ impl VM {
                 panic!()
             };
 
+        let string = unsafe { &*frame.class.unwrap() }
+            .get_utf8_from_const_pool(frame.method_info.name_index as usize)
+            .unwrap();
+        if string == "main" {
+            CFGMaker::new().make(&code);
+        }
+
         loop {
             let frame = frame!();
             let cur_code = code[frame.pc as usize];

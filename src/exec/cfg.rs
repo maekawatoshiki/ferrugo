@@ -11,12 +11,62 @@ impl CFGMaker {
 
 impl CFGMaker {
     pub fn make(&mut self, code: &Vec<Inst::Code>) {
+        // 0: iconst_0
+        // 1: istore_1
+        // 2: iload_1
+        // 3: iconst_1
+        // 4: if_icmpne     11
+        // 7: iconst_2
+        // 8: goto          12
+        // 11: iconst_3
+        // 12: istore_2
+        // 13: return
+
         let mut pc = 0;
 
         loop {
             if pc >= code.len() {
                 break;
             }
+
+            let cur_code = code[pc];
+
+            match cur_code {
+                Inst::iconst_m1
+                | Inst::iconst_0
+                | Inst::iconst_1
+                | Inst::iconst_2
+                | Inst::iconst_3
+                | Inst::iconst_4
+                | Inst::iconst_5 => {
+                    pc += 1;
+                }
+                Inst::istore_0 | Inst::istore_1 | Inst::istore_2 | Inst::istore_3 => {
+                    pc += 1;
+                }
+                Inst::iload_0 | Inst::iload_1 | Inst::iload_2 | Inst::iload_3 => {
+                    pc += 1;
+                }
+                Inst::if_icmpne => {
+                    pc += 3;
+                }
+                Inst::goto => {
+                    pc += 3;
+                }
+                Inst::return_ => {
+                    pc += 1;
+                }
+                e => unimplemented!("{}", e),
+            }
+        }
+        println!("hi");
+
+        loop {
+            if pc >= code.len() {
+                break;
+            }
+
+            let cur_code = code[pc];
 
             match cur_code {
                 Inst::iconst_m1
