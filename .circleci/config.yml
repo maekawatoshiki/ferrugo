@@ -15,8 +15,8 @@ jobs:
           command: apt-get update
       - run:
           command: apt-get install -y wget curl binutils-dev build-essential git make cmake zlib1g-dev libdw-dev python
-      # - run:
-      #     command: apt-get install -y libgtk-3-dev libfreetype6-dev zlib1g-dev wget libssl-dev pkg-config cmake zlib1g-dev curl binutils-dev libcurl4-openssl-dev libiberty-dev
+      - run:
+          command: apt-get install -y libgtk-3-dev libfreetype6-dev zlib1g-dev wget libssl-dev pkg-config cmake zlib1g-dev curl binutils-dev libcurl4-openssl-dev libiberty-dev
       - run:
           command: |
             wget "https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init"
@@ -27,13 +27,13 @@ jobs:
             chmod -R a+w $RUSTUP_HOME $CARGO_HOME;
             rm rustup-init
             source ~/.cargo/env
-      # - run: 
-      #     name: Install llvm-6.0 and so on
-      #     command: |
-      #       apt-get install clang-6.0 llvm-6.0 llvm-6.0-dev opt libedit-dev build-essential make -y
-      #       # ln -s /usr/bin/clang-6.0 /usr/bin/clang; 
-      #       # ln -s /usr/bin/clang++-6.0 /usr/bin/clang++; 
-      #       ln -s /usr/bin/llvm-config-6.0 /usr/bin/llvm-config;
+      - run: 
+          name: Install llvm-6.0 and so on
+          command: |
+            apt-get install clang-6.0 llvm-6.0 llvm-6.0-dev opt libedit-dev build-essential make -y
+            # ln -s /usr/bin/clang-6.0 /usr/bin/clang; 
+            # ln -s /usr/bin/clang++-6.0 /usr/bin/clang++; 
+            ln -s /usr/bin/llvm-config-6.0 /usr/bin/llvm-config;
       - run:
           name: Setting up kcov
           command: |
