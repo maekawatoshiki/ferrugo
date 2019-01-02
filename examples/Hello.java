@@ -74,8 +74,11 @@ class Hello {
     // コードが変なのは許して．
     int i = 0, count = 0;
     while (count < 5) {
-      i += count == 2 ? 3 : 1;
       count++;
+      if (count == 3) {
+        continue;
+      }
+      i += count == 2 ? 3 : 1;
     }
     System.out.println(i);
 

@@ -28,6 +28,7 @@ impl BrKind {
     pub fn get_unconditional_jump_destination(&self) -> usize {
         match self {
             BrKind::UnconditionalJmp { destination } => *destination,
+            BrKind::JmpRequired { destination } => *destination,
             _ => panic!(),
         }
     }
@@ -50,6 +51,7 @@ impl CFGMaker {
 
 impl CFGMaker {
     pub fn make(&mut self, code: &Vec<Inst::Code>, start: usize, end: usize) -> Vec<Block> {
+        println!("{}~{}", start, end);
         let mut map = BTreeMap::new();
         let mut pc = start;
 
@@ -79,12 +81,12 @@ impl CFGMaker {
             pc += Inst::get_inst_size(cur_code);
         }
 
-        let mut cur = Some(0);
+        let mut cur = Some(start);
         let mut blocks = vec![];
 
         for (key, kind) in map {
             if kind != BrKind::BlockStart {
-                if cur.is_some() {
+                if cur.is_some() && cur.unwrap() < end && cur.unwrap() < key {
                     println!(
                         "{}[{}, {}]",
                         match kind {
@@ -105,7 +107,7 @@ impl CFGMaker {
                     cur = None;
                 }
             } else {
-                if cur.is_some() {
+                if cur.is_some() && cur.unwrap() < end && cur.unwrap() < key {
                     println!("[{}, {}]", cur.unwrap(), key - 1);
                     blocks.push(Block {
                         code: code[cur.unwrap()..key].to_vec(),
@@ -117,7 +119,7 @@ impl CFGMaker {
                 cur = Some(key);
             }
         }
-        if cur.is_some() {
+        if cur.is_some() && cur.unwrap() < end {
             println!("[{}, {}]", cur.unwrap(), end - 1);
             blocks.push(Block {
                 code: code[cur.unwrap()..end].to_vec(),

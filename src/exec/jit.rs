@@ -43,6 +43,12 @@ pub struct JITExecInfo {
     pub cant_compile: bool,
 }
 
+#[derive(Debug, Clone)]
+pub enum BasicBlockInfo {
+    Positioned(LLVMBasicBlockRef),
+    Unpositioned(LLVMBasicBlockRef),
+}
+
 #[derive(Debug)]
 pub struct PhiStack {
     src_bb: LLVMBasicBlockRef,
@@ -56,7 +62,7 @@ pub struct JIT {
     builder: LLVMBuilderRef,
     cur_func: Option<LLVMValueRef>,
     env: FxHashMap<usize, LLVMValueRef>,
-    bblocks: FxHashMap<usize, LLVMBasicBlockRef>,
+    bblocks: FxHashMap<usize, BasicBlockInfo>,
     phi_stack: FxHashMap<usize, Vec<PhiStack>>, // destination,
 }
 
@@ -149,9 +155,9 @@ impl JIT {
             CString::new("entry").unwrap().as_ptr(),
         );
 
-        self.bblocks.insert(0, bb_entry);
-
         LLVMPositionBuilderAtEnd(self.builder, bb_entry);
+
+        self.bblocks.insert(0, BasicBlockInfo::Positioned(bb_entry));
 
         let mut env = FxHashMap::default();
         let arg_0 = LLVMGetParam(func, 0);
@@ -196,32 +202,52 @@ impl JIT {
             if block.start > 0 {
                 self.bblocks.insert(
                     block.start,
-                    LLVMAppendBasicBlock(func, CString::new("").unwrap().as_ptr()),
+                    BasicBlockInfo::Unpositioned(LLVMAppendBasicBlock(
+                        func,
+                        CString::new("").unwrap().as_ptr(),
+                    )),
                 );
             }
         }
 
+        LLVMBuildBr(
+            self.builder,
+            self.get_basic_block(blocks[0].start).retrieve(),
+        );
         for i in 0..blocks.len() {
             self.compile_block(blocks, i, vec![])?;
         }
 
         let last_block = blocks.last().unwrap();
-        let bb_last = *self.bblocks.get(&last_block.start).unwrap();
+        let bb_last = (*self.bblocks.get(&last_block.start).unwrap()).retrieve();
         LLVMPositionBuilderAtEnd(self.builder, bb_last);
-        LLVMBuildRet(
-            self.builder,
-            LLVMConstInt(
-                LLVMInt32TypeInContext(self.context),
-                last_block.code_end_position() as u64,
-                0,
-            ),
-        );
+        if cur_bb_has_no_terminator(self.builder) {
+            LLVMBuildRet(
+                self.builder,
+                LLVMConstInt(
+                    LLVMInt32TypeInContext(self.context),
+                    last_block.code_end_position() as u64,
+                    0,
+                ),
+            );
+        }
+        for (pos, bb) in &self.bblocks {
+            if let BasicBlockInfo::Unpositioned(bb) = *bb {
+                LLVMPositionBuilderAtEnd(self.builder, bb);
+                if cur_bb_has_no_terminator(self.builder) {
+                    LLVMBuildRet(
+                        self.builder,
+                        LLVMConstInt(LLVMInt32TypeInContext(self.context), *pos as u64, 0),
+                    );
+                }
+            }
+        }
 
         self.env.clear();
         self.bblocks.clear();
         self.phi_stack.clear();
 
-        // LLVMDumpModule(self.module);
+        LLVMDumpModule(self.module);
 
         // TODO: Is this REALLY right way???
         let mut ee = 0 as llvm::execution_engine::LLVMExecutionEngineRef;
@@ -262,7 +288,7 @@ impl JIT {
 
         block!().generated = true;
 
-        let bb = *self.bblocks.get(&block!().start).unwrap();
+        let bb = self.bblocks.get(&block!().start).unwrap().retrieve();
         LLVMPositionBuilderAtEnd(self.builder, bb);
 
         let init_size = init_stack.len();
@@ -302,45 +328,50 @@ impl JIT {
 
         let stack = self.compile_bytecode(block!(), phi_stack)?;
 
-        fn find(pc: usize, blocks: &Vec<Block>) -> usize {
+        fn find(pc: usize, blocks: &Vec<Block>) -> Option<usize> {
             for (i, block) in blocks.iter().enumerate() {
                 if block.start == pc {
-                    return i;
+                    return Some(i);
                 }
             }
-            panic!()
+            None
         }
 
         match block!().kind.clone() {
             BrKind::ConditionalJmp { destinations } => {
                 let mut d = 0;
                 for dst in destinations {
-                    let i = find(dst, blocks);
+                    if let Some(i) = find(dst, blocks) {
+                        d = self.compile_block(blocks, i, stack.clone())?;
+                    } else {
+                        continue;
+                    };
                     // TODO: All ``d`` must be the same
-                    d = self.compile_block(blocks, i, stack.clone())?;
                 }
-                self.compile_block(blocks, find(d, blocks), vec![])
+                if let Some(i) = find(d, blocks) {
+                    self.compile_block(blocks, i, vec![])
+                } else {
+                    Ok(0)
+                }
             }
             BrKind::UnconditionalJmp { destination } => {
-                let src_bb = *self.bblocks.get(&block!().start).unwrap();
-                if stack.len() > 0 {
-                    self.phi_stack
-                        .entry(destination)
-                        .or_insert(vec![])
-                        .push(PhiStack { src_bb, stack });
-                }
+                let src_bb = self.get_basic_block(block!().start).retrieve();
+                self.phi_stack
+                    .entry(destination)
+                    .or_insert(vec![])
+                    .push(PhiStack { src_bb, stack });
                 Ok(destination)
             }
             BrKind::JmpRequired { destination } => {
-                let src_bb = *self.bblocks.get(&block!().start).unwrap();
-                let bb = *self.bblocks.get(&destination).unwrap();
-                LLVMBuildBr(self.builder, bb);
-                if stack.len() > 0 {
-                    self.phi_stack
-                        .entry(destination)
-                        .or_insert(vec![])
-                        .push(PhiStack { src_bb, stack });
+                let src_bb = self.get_basic_block(block!().start).retrieve();
+                let bb = self.get_basic_block(destination).retrieve();
+                if cur_bb_has_no_terminator(self.builder) {
+                    LLVMBuildBr(self.builder, bb);
                 }
+                self.phi_stack
+                    .entry(destination)
+                    .or_insert(vec![])
+                    .push(PhiStack { src_bb, stack });
                 Ok(destination)
             }
             _ => Ok(0),
@@ -401,16 +432,19 @@ impl JIT {
                         val2,
                         CString::new("icmp").unwrap().as_ptr(),
                     );
+                    println!("{:?} {}", block.kind, block.start);
                     let destinations = block.kind.get_conditional_jump_destinations();
-                    let bb_then = *self.bblocks.get(&destinations[0]).unwrap();
-                    let bb_else = *self.bblocks.get(&destinations[1]).unwrap();
+                    let bb_then = self.get_basic_block(destinations[0]).retrieve();
+                    let bb_else = self.get_basic_block(destinations[1]).retrieve();
 
                     LLVMBuildCondBr(self.builder, cond_val, bb_then, bb_else);
                 }
                 Inst::goto => {
                     let destination = block.kind.get_unconditional_jump_destination();
-                    let bb_goto = *self.bblocks.get(&destination).unwrap();
-                    LLVMBuildBr(self.builder, bb_goto);
+                    let bb_goto = self.get_basic_block(destination).retrieve();
+                    if cur_bb_has_no_terminator(self.builder) {
+                        LLVMBuildBr(self.builder, bb_goto);
+                    }
                 }
                 Inst::iinc => {
                     let index = code[pc + 1] as usize;
@@ -497,5 +531,26 @@ impl JIT {
         }
 
         vars
+    }
+
+    unsafe fn get_basic_block(&mut self, pc: usize) -> &BasicBlockInfo {
+        self.bblocks
+            .entry(pc)
+            .or_insert(BasicBlockInfo::Unpositioned(LLVMAppendBasicBlock(
+                self.cur_func.unwrap(),
+                CString::new("").unwrap().as_ptr(),
+            )))
+    }
+}
+
+unsafe fn cur_bb_has_no_terminator(builder: LLVMBuilderRef) -> bool {
+    LLVMIsATerminatorInst(LLVMGetLastInstruction(LLVMGetInsertBlock(builder))) == ptr::null_mut()
+}
+
+impl BasicBlockInfo {
+    pub fn retrieve(&self) -> LLVMBasicBlockRef {
+        match self {
+            BasicBlockInfo::Positioned(bb) | BasicBlockInfo::Unpositioned(bb) => *bb,
+        }
     }
 }
