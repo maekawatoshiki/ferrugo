@@ -6,6 +6,7 @@ pub struct Block {
     pub code: Vec<Inst::Code>,
     pub start: usize,
     pub kind: BrKind,
+    pub generated: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -99,6 +100,7 @@ impl CFGMaker {
                         code: code[cur.unwrap()..key + 1].to_vec(),
                         start: cur.unwrap(),
                         kind,
+                        generated: false,
                     });
                     cur = None;
                 }
@@ -109,6 +111,7 @@ impl CFGMaker {
                         code: code[cur.unwrap()..key].to_vec(),
                         start: cur.unwrap(),
                         kind: BrKind::JmpRequired { destination: key },
+                        generated: false,
                     });
                 }
                 cur = Some(key);
@@ -120,6 +123,7 @@ impl CFGMaker {
                 code: code[cur.unwrap()..code.len()].to_vec(),
                 start: cur.unwrap(),
                 kind: BrKind::BlockStart,
+                generated: false,
             });
         }
         println!("{:?}", blocks);

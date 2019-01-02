@@ -26,6 +26,12 @@ impl CastIntoLLVMType for VariableType {
 }
 
 #[derive(Debug)]
+pub struct PhiStack {
+    src_bb: LLVMBasicBlockRef,
+    stack: Vec<LLVMValueRef>,
+}
+
+#[derive(Debug)]
 pub struct JIT {
     context: LLVMContextRef,
     module: LLVMModuleRef,
@@ -33,7 +39,7 @@ pub struct JIT {
     cur_func: Option<LLVMValueRef>,
     env: FxHashMap<usize, LLVMValueRef>,
     bblocks: FxHashMap<usize, LLVMBasicBlockRef>,
-    phi_stack: FxHashMap<usize, Vec<(LLVMBasicBlockRef, Vec<LLVMValueRef>)>>, // destination, (basic block, stack)
+    phi_stack: FxHashMap<usize, Vec<PhiStack>>, // destination,
 }
 
 impl JIT {
@@ -62,7 +68,7 @@ impl JIT {
 }
 
 impl JIT {
-    pub unsafe fn compile(&mut self, blocks: &Vec<Block>) {
+    pub unsafe fn compile(&mut self, blocks: &mut Vec<Block>) {
         let local_vars = self.count_local_variables(blocks);
 
         let func_ret_ty = LLVMInt32TypeInContext(self.context);
@@ -91,6 +97,8 @@ impl JIT {
             func,
             CString::new("entry").unwrap().as_ptr(),
         );
+
+        self.bblocks.insert(0, bb_entry);
 
         LLVMPositionBuilderAtEnd(self.builder, bb_entry);
 
@@ -133,7 +141,7 @@ impl JIT {
 
         assert!(blocks.len() > 0);
 
-        for block in blocks {
+        for block in &*blocks {
             if block.start > 0 {
                 self.bblocks.insert(
                     block.start,
@@ -142,17 +150,12 @@ impl JIT {
             }
         }
 
-        let a = self.compile_block(blocks, 0);
-        fn find(pc: usize, blocks: &Vec<Block>) -> usize {
-            for (i, block) in blocks.iter().enumerate() {
-                if block.start == pc {
-                    return i;
-                }
+        for i in 0..blocks.len() {
+            if blocks[i].generated {
+                continue;
             }
-            panic!()
+            self.compile_block(blocks, i);
         }
-        let a = self.compile_block(blocks, find(a, blocks));
-        println!("{}", a);
 
         self.env.clear();
         self.bblocks.clear();
@@ -160,55 +163,54 @@ impl JIT {
         LLVMDumpModule(self.module);
     }
 
-    unsafe fn compile_block(
-        &mut self,
-        blocks: &Vec<Block>,
-        idx: usize,
-        // stack: Vec<LLVMValueRef>,
-    ) -> usize {
-        let block = &blocks[idx];
+    unsafe fn compile_block(&mut self, blocks: &mut Vec<Block>, idx: usize) -> usize {
+        #[rustfmt::skip]
+        macro_rules! block { () => {{ &blocks[idx] }}; };
+        #[rustfmt::skip]
+        macro_rules! block_mut { () => {{ &mut blocks[idx] }}; };
 
-        if block.start > 0 {
-            let bb = *self.bblocks.get(&block.start).unwrap();
+        block_mut!().generated = true;
+
+        if block!().start > 0 {
+            let bb = *self.bblocks.get(&block!().start).unwrap();
             LLVMPositionBuilderAtEnd(self.builder, bb);
         }
 
-        let mut aastack = vec![];
-        if let Some(stacks) = self.phi_stack.get(&block.start) {
-            {
-                let bb = stacks[0].0;
-                for val in &stacks[0].1 {
-                    let phi = LLVMBuildPhi(
-                        self.builder,
-                        LLVMTypeOf(*val),
-                        CString::new("").unwrap().as_ptr(),
-                    );
-                    LLVMAddIncoming(
-                        phi,
-                        vec![*val].as_mut_slice().as_mut_ptr(),
-                        vec![bb].as_mut_slice().as_mut_ptr(),
-                        1,
-                    );
-                    aastack.push(phi);
-                }
+        let mut phi_stack = vec![];
+
+        if let Some(stacks) = self.phi_stack.get(&block!().start) {
+            // Firstly, build llvm's phi which needs a type of all conceivavle values.
+            let src_bb = stacks[0].src_bb;
+            for val in &stacks[0].stack {
+                let phi = LLVMBuildPhi(
+                    self.builder,
+                    LLVMTypeOf(*val),
+                    CString::new("").unwrap().as_ptr(),
+                );
+                LLVMAddIncoming(
+                    phi,
+                    vec![*val].as_mut_slice().as_mut_ptr(),
+                    vec![src_bb].as_mut_slice().as_mut_ptr(),
+                    1,
+                );
+                phi_stack.push(phi);
             }
+
             for stack in &stacks[1..] {
-                let bb = stack.0;
-                let mut i = 0;
-                for val in &stack.1 {
-                    let phi = aastack[i];
+                let src_bb = stack.src_bb;
+                for (i, val) in (&stack.stack).iter().enumerate() {
+                    let phi = phi_stack[i];
                     LLVMAddIncoming(
                         phi,
                         vec![*val].as_mut_slice().as_mut_ptr(),
-                        vec![bb].as_mut_slice().as_mut_ptr(),
+                        vec![src_bb].as_mut_slice().as_mut_ptr(),
                         1,
                     );
-                    i += 1;
                 }
             }
         }
 
-        let stack1 = self.compile_bytecode(&block, aastack);
+        let stack = self.compile_bytecode(block!(), phi_stack);
 
         fn find(pc: usize, blocks: &Vec<Block>) -> usize {
             for (i, block) in blocks.iter().enumerate() {
@@ -219,45 +221,48 @@ impl JIT {
             panic!()
         }
 
-        match &block.kind {
+        match block!().kind.clone() {
             BrKind::ConditionalJmp { destinations } => {
                 let mut d = 0;
                 for dst in destinations {
-                    let i = find(*dst, blocks);
+                    let i = find(dst, blocks);
+                    if blocks[i].generated {
+                        continue;
+                    }
+                    // TODO: All ``d`` must be the same
                     d = self.compile_block(blocks, i);
                 }
-                d
+                if d == 0 {
+                    return 0;
+                }
+                self.compile_block(blocks, find(d, blocks))
             }
             BrKind::UnconditionalJmp { destination } => {
-                let bb = *self.bblocks.get(&block.start).unwrap();
-                self.phi_stack
-                    .entry(*destination)
-                    .or_insert(vec![])
-                    .push((bb, stack1));
-                *destination
+                let src_bb = *self.bblocks.get(&block!().start).unwrap();
+                if stack.len() > 0 {
+                    self.phi_stack
+                        .entry(destination)
+                        .or_insert(vec![])
+                        .push(PhiStack { src_bb, stack });
+                }
+                destination
             }
             BrKind::JmpRequired { destination } => {
-                let bb = *self.bblocks.get(&block.start).unwrap();
+                let src_bb = *self.bblocks.get(&block!().start).unwrap();
+                let bb = *self.bblocks.get(&destination).unwrap();
                 LLVMBuildBr(self.builder, bb);
-                self.phi_stack
-                    .entry(*destination)
-                    .or_insert(vec![])
-                    .push((bb, stack1));
-                *destination
+                if stack.len() > 0 {
+                    self.phi_stack
+                        .entry(destination)
+                        .or_insert(vec![])
+                        .push(PhiStack { src_bb, stack });
+                }
+                destination
             }
             _ => 0,
         }
     }
 
-    // 1: istore_1
-    //     2: iload_1
-    //     3: iconst_3
-    //     4: if_icmpne     11
-    //     7: iconst_4
-    //     8: goto          12
-    //     11: iconst_5
-    //     12: istore_1
-    //     13: return
     unsafe fn compile_bytecode(
         &mut self,
         block: &Block,

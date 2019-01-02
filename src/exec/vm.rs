@@ -75,10 +75,10 @@ impl VM {
             .get_utf8_from_const_pool(frame.method_info.name_index as usize)
             .unwrap();
         if string == "main" {
-            let blocks = CFGMaker::new().make(&code);
+            let mut blocks = CFGMaker::new().make(&code);
             unsafe {
                 let mut jit = JIT::new();
-                jit.compile(&blocks);
+                jit.compile(&mut blocks);
             }
         }
 
