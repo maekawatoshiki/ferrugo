@@ -1,4 +1,4 @@
-use super::super::class::class::Class;
+use super::super::class::class::{Class, JITInfoManager};
 use super::super::class::classfile::attribute::Attribute;
 use super::super::class::classfile::constant::Constant;
 use super::super::class::classfile::method::MethodInfo;
@@ -24,6 +24,7 @@ pub struct VM {
     pub frame_stack: Vec<Frame>,
     pub stack: Vec<Variable>,
     pub bp: usize,
+    pub jit: JIT,
 }
 
 impl VM {
@@ -44,6 +45,7 @@ impl VM {
                 stack
             },
             bp: 0,
+            jit: unsafe { JIT::new() },
         }
     }
 }
@@ -64,6 +66,11 @@ impl VM {
             return 0;
         }
 
+        let jit_info_mgr = unsafe { &mut *frame.class.unwrap() }.get_jit_info_mgr(
+            frame.method_info.name_index as usize,
+            frame.method_info.descriptor_index as usize,
+        );
+
         let code =
             if let Some(Attribute::Code { code, .. }) = frame.method_info.get_code_attribute() {
                 code.clone()
@@ -74,12 +81,14 @@ impl VM {
         let string = unsafe { &*frame.class.unwrap() }
             .get_utf8_from_const_pool(frame.method_info.name_index as usize)
             .unwrap();
+
         if string == "main" {
-            let mut blocks = CFGMaker::new().make(&code);
+            let mut blocks = CFGMaker::new().make(&code, 0, code.len());
             unsafe {
                 let mut jit = JIT::new();
                 jit.compile(&mut blocks);
             }
+            return 0;
         }
 
         loop {
@@ -361,7 +370,12 @@ impl VM {
                 }
                 Inst::goto => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
-                    frame.pc = (frame.pc as isize + branch as isize) as usize;
+                    let dst = (frame.pc as isize + branch as isize) as usize;
+                    if dst < frame.pc {
+                        // Loop
+                        jit_info_mgr.inc_count_of_loop_exec(dst, frame.pc + 3);
+                    }
+                    frame.pc = dst;
                 }
                 Inst::dcmpl => {
                     let val2 = self.stack[self.bp + frame.sp - 1].get_double();

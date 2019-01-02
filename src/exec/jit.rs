@@ -159,22 +159,23 @@ impl JIT {
 
         self.env.clear();
         self.bblocks.clear();
+        self.phi_stack.clear();
 
         LLVMDumpModule(self.module);
     }
 
     unsafe fn compile_block(&mut self, blocks: &mut Vec<Block>, idx: usize) -> usize {
         #[rustfmt::skip]
-        macro_rules! block { () => {{ &blocks[idx] }}; };
-        #[rustfmt::skip]
-        macro_rules! block_mut { () => {{ &mut blocks[idx] }}; };
+        macro_rules! block { () => {{ &mut blocks[idx] }}; };
 
-        block_mut!().generated = true;
-
-        if block!().start > 0 {
-            let bb = *self.bblocks.get(&block!().start).unwrap();
-            LLVMPositionBuilderAtEnd(self.builder, bb);
+        if block!().generated {
+            return 0;
         }
+
+        block!().generated = true;
+
+        let bb = *self.bblocks.get(&block!().start).unwrap();
+        LLVMPositionBuilderAtEnd(self.builder, bb);
 
         let mut phi_stack = vec![];
 
@@ -226,14 +227,8 @@ impl JIT {
                 let mut d = 0;
                 for dst in destinations {
                     let i = find(dst, blocks);
-                    if blocks[i].generated {
-                        continue;
-                    }
                     // TODO: All ``d`` must be the same
                     d = self.compile_block(blocks, i);
-                }
-                if d == 0 {
-                    return 0;
                 }
                 self.compile_block(blocks, find(d, blocks))
             }
@@ -303,17 +298,20 @@ impl JIT {
                         CString::new("").unwrap().as_ptr(),
                     ));
                 }
-                Inst::if_icmpne => {
+                Inst::if_icmpne | Inst::if_icmpge => {
                     let val2 = stack.pop().unwrap();
                     let val1 = stack.pop().unwrap();
                     let cond_val = LLVMBuildICmp(
                         self.builder,
-                        llvm::LLVMIntPredicate::LLVMIntNE,
+                        match cur_code {
+                            Inst::if_icmpne => llvm::LLVMIntPredicate::LLVMIntNE,
+                            Inst::if_icmpge => llvm::LLVMIntPredicate::LLVMIntSGE,
+                            _ => unreachable!(),
+                        },
                         val1,
                         val2,
-                        CString::new("ine").unwrap().as_ptr(),
+                        CString::new("icmp").unwrap().as_ptr(),
                     );
-
                     let destinations = block.kind.get_conditional_jump_destinations();
                     let bb_then = *self.bblocks.get(&destinations[0]).unwrap();
                     let bb_else = *self.bblocks.get(&destinations[1]).unwrap();
@@ -324,6 +322,17 @@ impl JIT {
                     let destination = block.kind.get_unconditional_jump_destination();
                     let bb_goto = *self.bblocks.get(&destination).unwrap();
                     LLVMBuildBr(self.builder, bb_goto);
+                }
+                Inst::iinc => {
+                    let index = code[pc + 1] as usize;
+                    let const_ = code[pc + 2];
+                    let var = self.declare_local_var(index, VariableType::Int);
+                    LLVMBuildAdd(
+                        self.builder,
+                        var,
+                        LLVMConstInt(LLVMInt32TypeInContext(self.context), const_ as u64, 0),
+                        CString::new("iinc").unwrap().as_ptr(),
+                    );
                 }
                 Inst::return_ => {}
                 e => unimplemented!("{}", e),

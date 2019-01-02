@@ -6,10 +6,17 @@ use super::classheap::ClassHeap;
 use rustc_hash::FxHashMap;
 
 #[derive(Debug, Clone)]
+pub struct JITInfoManager {
+    loop_count: FxHashMap<usize, (usize, usize)>, // loop (start, (end, count))
+                                                  // whole_method: Option<LLVMValueRef>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Class {
     pub classfile: ClassFile,
     pub classheap: Option<GcType<ClassHeap>>,
     pub static_variables: FxHashMap<String, Variable>,
+    pub jit_info_mgr: FxHashMap<(/*(name_index, descriptor_index)=*/ usize, usize), JITInfoManager>,
 }
 
 impl Class {
@@ -18,6 +25,7 @@ impl Class {
             classfile: ClassFile::new(),
             classheap: None,
             static_variables: FxHashMap::default(),
+            jit_info_mgr: FxHashMap::default(),
         }
     }
 
@@ -143,5 +151,32 @@ impl Class {
             count += unsafe { &*super_class }.get_object_field_count();
         }
         count
+    }
+
+    pub fn get_jit_info_mgr(
+        &mut self,
+        name_index: usize,
+        descriptor_index: usize,
+    ) -> &mut JITInfoManager {
+        self.jit_info_mgr
+            .entry((name_index, descriptor_index))
+            .or_insert(JITInfoManager::new())
+    }
+}
+
+impl JITInfoManager {
+    pub fn new() -> Self {
+        JITInfoManager {
+            loop_count: FxHashMap::default(),
+        }
+    }
+
+    pub fn inc_count_of_loop_exec(&mut self, start: usize, end: usize) -> bool {
+        let (_, count) = self.loop_count.entry(start).or_insert((end, 1));
+        let do_compile = *count > 3; // TODO: No magic number
+        if !do_compile {
+            *count += 1;
+        }
+        do_compile
     }
 }

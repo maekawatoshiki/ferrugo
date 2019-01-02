@@ -43,19 +43,14 @@ impl CFGMaker {
 }
 
 impl CFGMaker {
-    pub fn make(&mut self, code: &Vec<Inst::Code>) -> Vec<Block> {
+    pub fn make(&mut self, code: &Vec<Inst::Code>, start: usize, end: usize) -> Vec<Block> {
         let mut map = BTreeMap::new();
-        let mut pc = 0;
+        let mut pc = start;
 
-        loop {
-            if pc >= code.len() {
-                break;
-            }
-
+        while pc < end {
             let cur_code = code[pc];
-
             match cur_code {
-                Inst::if_icmpne => {
+                Inst::if_icmpne | Inst::if_icmpge => {
                     let branch = ((code[pc + 1] as i16) << 8) + code[pc + 2] as i16;
                     let dst = (pc as isize + branch as isize) as usize;
                     map.insert(
