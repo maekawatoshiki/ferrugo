@@ -1,12 +1,23 @@
 use super::cfg::{Block, BrKind};
+use super::frame::Variable;
 use super::vm::Inst;
 use libc;
 use llvm;
 use llvm::core::*;
 use llvm::prelude::*;
+use rand::random;
 use rustc_hash::FxHashMap;
 use std::ffi::CString;
+use std::mem::transmute;
 use std::ptr;
+
+pub type CResult<T> = Result<T, Error>;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Error {
+    CouldntCompile,
+    General,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum VariableType {
@@ -23,6 +34,13 @@ impl CastIntoLLVMType for VariableType {
             &VariableType::Int => LLVMInt32TypeInContext(ctx),
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct JITExecInfo {
+    pub local_variables: FxHashMap<usize, VariableType>,
+    pub func: u64,
+    pub cant_compile: bool,
 }
 
 #[derive(Debug)]
@@ -68,7 +86,38 @@ impl JIT {
 }
 
 impl JIT {
-    pub unsafe fn compile(&mut self, blocks: &mut Vec<Block>) {
+    pub unsafe fn run_loop(
+        &self,
+        stack: &mut Vec<Variable>,
+        bp: usize,
+        exec_info: &JITExecInfo,
+    ) -> Option<usize> {
+        let mut raw_local_vars = vec![];
+
+        for (offset, _ty) in &exec_info.local_variables {
+            raw_local_vars.push(match stack[bp + offset] {
+                Variable::Int(i) => Box::into_raw(Box::new(i)) as *mut libc::c_void,
+                _ => return None,
+            });
+        }
+
+        let pc = transmute::<u64, fn(*mut *mut libc::c_void) -> i32>(exec_info.func)(
+            raw_local_vars.as_mut_slice().as_mut_ptr(),
+        );
+
+        for (i, (offset, ty)) in exec_info.local_variables.iter().enumerate() {
+            stack[bp + offset] = match ty {
+                VariableType::Int => Variable::Int(*(raw_local_vars[i] as *mut i32)),
+            };
+            Box::from_raw(raw_local_vars[i]);
+        }
+
+        Some(pc as usize)
+    }
+}
+
+impl JIT {
+    pub unsafe fn compile(&mut self, blocks: &mut Vec<Block>) -> CResult<JITExecInfo> {
         let local_vars = self.count_local_variables(blocks);
 
         let func_ret_ty = LLVMInt32TypeInContext(self.context);
@@ -84,9 +133,11 @@ impl JIT {
             0,
         );
 
+        let func_name = format!("ferrugo-jit-loop-{}", random::<u32>());
+
         let func = LLVMAddFunction(
             self.module,
-            CString::new("jvm-jited-func").unwrap().as_ptr(),
+            CString::new(func_name.as_str()).unwrap().as_ptr(),
             func_ty,
         );
 
@@ -151,25 +202,62 @@ impl JIT {
         }
 
         for i in 0..blocks.len() {
-            if blocks[i].generated {
-                continue;
-            }
-            self.compile_block(blocks, i);
+            self.compile_block(blocks, i, vec![])?;
         }
+
+        let last_block = blocks.last().unwrap();
+        let bb_last = *self.bblocks.get(&last_block.start).unwrap();
+        LLVMPositionBuilderAtEnd(self.builder, bb_last);
+        LLVMBuildRet(
+            self.builder,
+            LLVMConstInt(
+                LLVMInt32TypeInContext(self.context),
+                last_block.code_end_position() as u64,
+                0,
+            ),
+        );
 
         self.env.clear();
         self.bblocks.clear();
         self.phi_stack.clear();
 
-        LLVMDumpModule(self.module);
+        // LLVMDumpModule(self.module);
+
+        // TODO: Is this REALLY right way???
+        let mut ee = 0 as llvm::execution_engine::LLVMExecutionEngineRef;
+        let mut error = 0 as *mut i8;
+        if llvm::execution_engine::LLVMCreateExecutionEngineForModule(
+            &mut ee,
+            self.module,
+            &mut error,
+        ) != 0
+        {
+            panic!("llvm error: failed to initialize execute engine")
+        }
+
+        let func_raw = llvm::execution_engine::LLVMGetFunctionAddress(
+            ee,
+            CString::new(func_name.as_str()).unwrap().as_ptr(),
+        );
+
+        Ok(JITExecInfo {
+            local_variables: local_vars,
+            func: func_raw,
+            cant_compile: false,
+        })
     }
 
-    unsafe fn compile_block(&mut self, blocks: &mut Vec<Block>, idx: usize) -> usize {
+    unsafe fn compile_block(
+        &mut self,
+        blocks: &mut Vec<Block>,
+        idx: usize,
+        init_stack: Vec<LLVMValueRef>,
+    ) -> CResult<usize> {
         #[rustfmt::skip]
         macro_rules! block { () => {{ &mut blocks[idx] }}; };
 
         if block!().generated {
-            return 0;
+            return Ok(0);
         }
 
         block!().generated = true;
@@ -177,7 +265,8 @@ impl JIT {
         let bb = *self.bblocks.get(&block!().start).unwrap();
         LLVMPositionBuilderAtEnd(self.builder, bb);
 
-        let mut phi_stack = vec![];
+        let init_size = init_stack.len();
+        let mut phi_stack = init_stack;
 
         if let Some(stacks) = self.phi_stack.get(&block!().start) {
             // Firstly, build llvm's phi which needs a type of all conceivavle values.
@@ -200,7 +289,7 @@ impl JIT {
             for stack in &stacks[1..] {
                 let src_bb = stack.src_bb;
                 for (i, val) in (&stack.stack).iter().enumerate() {
-                    let phi = phi_stack[i];
+                    let phi = phi_stack[init_size + i];
                     LLVMAddIncoming(
                         phi,
                         vec![*val].as_mut_slice().as_mut_ptr(),
@@ -211,7 +300,7 @@ impl JIT {
             }
         }
 
-        let stack = self.compile_bytecode(block!(), phi_stack);
+        let stack = self.compile_bytecode(block!(), phi_stack)?;
 
         fn find(pc: usize, blocks: &Vec<Block>) -> usize {
             for (i, block) in blocks.iter().enumerate() {
@@ -228,9 +317,9 @@ impl JIT {
                 for dst in destinations {
                     let i = find(dst, blocks);
                     // TODO: All ``d`` must be the same
-                    d = self.compile_block(blocks, i);
+                    d = self.compile_block(blocks, i, stack.clone())?;
                 }
-                self.compile_block(blocks, find(d, blocks))
+                self.compile_block(blocks, find(d, blocks), vec![])
             }
             BrKind::UnconditionalJmp { destination } => {
                 let src_bb = *self.bblocks.get(&block!().start).unwrap();
@@ -240,7 +329,7 @@ impl JIT {
                         .or_insert(vec![])
                         .push(PhiStack { src_bb, stack });
                 }
-                destination
+                Ok(destination)
             }
             BrKind::JmpRequired { destination } => {
                 let src_bb = *self.bblocks.get(&block!().start).unwrap();
@@ -252,9 +341,9 @@ impl JIT {
                         .or_insert(vec![])
                         .push(PhiStack { src_bb, stack });
                 }
-                destination
+                Ok(destination)
             }
-            _ => 0,
+            _ => Ok(0),
         }
     }
 
@@ -262,7 +351,7 @@ impl JIT {
         &mut self,
         block: &Block,
         mut stack: Vec<LLVMValueRef>,
-    ) -> Vec<LLVMValueRef> {
+    ) -> CResult<Vec<LLVMValueRef>> {
         let code = &block.code;
         let mut pc = 0;
 
@@ -326,22 +415,38 @@ impl JIT {
                 Inst::iinc => {
                     let index = code[pc + 1] as usize;
                     let const_ = code[pc + 2];
-                    let var = self.declare_local_var(index, VariableType::Int);
-                    LLVMBuildAdd(
+                    let var_ref = self.declare_local_var(index, VariableType::Int);
+                    let var_val =
+                        LLVMBuildLoad(self.builder, var_ref, CString::new("").unwrap().as_ptr());
+                    let inc = LLVMBuildAdd(
                         self.builder,
-                        var,
+                        var_val,
                         LLVMConstInt(LLVMInt32TypeInContext(self.context), const_ as u64, 0),
                         CString::new("iinc").unwrap().as_ptr(),
                     );
+                    LLVMBuildStore(self.builder, inc, var_ref);
+                }
+                Inst::iadd => {
+                    let val2 = stack.pop().unwrap();
+                    let val1 = stack.pop().unwrap();
+                    stack.push(LLVMBuildAdd(
+                        self.builder,
+                        val1,
+                        val2,
+                        CString::new("iadd").unwrap().as_ptr(),
+                    ));
                 }
                 Inst::return_ => {}
-                e => unimplemented!("{}", e),
+                e => {
+                    dprintln!("jit: unimplemented instruction: {}", e);
+                    return Err(Error::CouldntCompile);
+                }
             }
 
             pc += Inst::get_inst_size(cur_code);
         }
 
-        stack
+        Ok(stack)
     }
 
     unsafe fn declare_local_var(&mut self, name: usize, ty: VariableType) -> LLVMValueRef {
@@ -384,6 +489,7 @@ impl JIT {
                     Inst::istore_0 | Inst::istore_1 | Inst::istore_2 | Inst::istore_3 => {
                         vars.insert((cur_code - Inst::istore_0) as usize, VariableType::Int);
                     }
+                    // iinc
                     _ => {}
                 }
                 pc += Inst::get_inst_size(cur_code);

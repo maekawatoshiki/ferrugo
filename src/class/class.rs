@@ -1,4 +1,5 @@
 use super::super::exec::frame::Variable;
+use super::super::exec::jit::JITExecInfo;
 use super::super::gc::gc::GcType;
 use super::classfile::read::ClassFileReader;
 use super::classfile::{classfile::ClassFile, field::FieldInfo, method::MethodInfo};
@@ -7,8 +8,8 @@ use rustc_hash::FxHashMap;
 
 #[derive(Debug, Clone)]
 pub struct JITInfoManager {
-    loop_count: FxHashMap<usize, (usize, usize)>, // loop (start, (end, count))
-                                                  // whole_method: Option<LLVMValueRef>,
+    loop_count: FxHashMap<usize, (usize, usize, Option<JITExecInfo>)>, // loop (start, (end, count, exec_info)
+                                                                       // whole_method: Option<LLVMValueRef>,
 }
 
 #[derive(Debug, Clone)]
@@ -172,11 +173,15 @@ impl JITInfoManager {
     }
 
     pub fn inc_count_of_loop_exec(&mut self, start: usize, end: usize) -> bool {
-        let (_, count) = self.loop_count.entry(start).or_insert((end, 1));
-        let do_compile = *count > 3; // TODO: No magic number
+        let (_, count, _) = self.loop_count.entry(start).or_insert((end, 1, None));
+        let do_compile = *count > 2; // TODO: No magic number
         if !do_compile {
             *count += 1;
         }
         do_compile
+    }
+
+    pub fn get_jit_func(&mut self, start: usize) -> &mut Option<JITExecInfo> {
+        &mut (*self.loop_count.get_mut(&start).unwrap()).2
     }
 }

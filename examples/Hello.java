@@ -67,14 +67,34 @@ class Hello {
     return pi;
   }
 
+
+
+
   public static void main(String[] args) {
-    int i = 0;
-    // while (i == 5) {
-    //   i += 1;
-    // }
-    i = i == 3 ? 
-      i == 4 ? 5 : 1
-      : 2;
+    // コードが変なのは許して．
+    int i = 0, count = 0;
+    while (count < 5) {
+      i += count == 2 ? 3 : 1;
+      count++;
+    }
+    System.out.println(i);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    // i = i == 3 ? 
+    //   i == 4 ? 5 : 1
+    //   : 2;
     // while (i == 3) { i += 1; }
     // int k = i == 1 ? 2 : 3;
     // System.out.println(123);

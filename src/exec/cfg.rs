@@ -33,6 +33,12 @@ impl BrKind {
     }
 }
 
+impl Block {
+    pub fn code_end_position(&self) -> usize {
+        self.start + self.code.len()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CFGMaker {}
 
@@ -61,17 +67,16 @@ impl CFGMaker {
                     );
                     map.insert(dst, BrKind::BlockStart);
                     map.insert(pc + 3, BrKind::BlockStart);
-                    pc += 3;
                 }
                 Inst::goto => {
                     let branch = ((code[pc + 1] as i16) << 8) + code[pc + 2] as i16;
                     let dst = (pc as isize + branch as isize) as usize;
                     map.insert(pc + 3 - 1, BrKind::UnconditionalJmp { destination: dst });
                     map.insert(dst, BrKind::BlockStart);
-                    pc += 3;
                 }
-                code => pc += Inst::get_inst_size(code),
+                _ => {}
             }
+            pc += Inst::get_inst_size(cur_code);
         }
 
         let mut cur = Some(0);
@@ -113,9 +118,9 @@ impl CFGMaker {
             }
         }
         if cur.is_some() {
-            println!("[{}, {}]", cur.unwrap(), code.len() - 1);
+            println!("[{}, {}]", cur.unwrap(), end - 1);
             blocks.push(Block {
-                code: code[cur.unwrap()..code.len()].to_vec(),
+                code: code[cur.unwrap()..end].to_vec(),
                 start: cur.unwrap(),
                 kind: BrKind::BlockStart,
                 generated: false,

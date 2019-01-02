@@ -1,4 +1,4 @@
-use super::super::class::class::{Class, JITInfoManager};
+use super::super::class::class::Class;
 use super::super::class::classfile::attribute::Attribute;
 use super::super::class::classfile::constant::Constant;
 use super::super::class::classfile::method::MethodInfo;
@@ -6,9 +6,10 @@ use super::super::class::classheap::ClassHeap;
 use super::super::gc::{gc, gc::GcType};
 use super::cfg::CFGMaker;
 use super::frame::{AType, Array, Frame, Variable};
-use super::jit::JIT;
 use super::objectheap::ObjectHeap;
+use super::{jit, jit::JIT};
 use ansi_term::Colour;
+use rustc_hash::FxHashMap;
 
 macro_rules! fld { ($a:path, $b:expr, $( $arg:ident ),*) => {{
     match $b {
@@ -78,18 +79,18 @@ impl VM {
                 panic!()
             };
 
-        let string = unsafe { &*frame.class.unwrap() }
-            .get_utf8_from_const_pool(frame.method_info.name_index as usize)
-            .unwrap();
-
-        if string == "main" {
-            let mut blocks = CFGMaker::new().make(&code, 0, code.len());
-            unsafe {
-                let mut jit = JIT::new();
-                jit.compile(&mut blocks);
-            }
-            return 0;
-        }
+        // let string = unsafe { &*frame.class.unwrap() }
+        //     .get_utf8_from_const_pool(frame.method_info.name_index as usize)
+        //     .unwrap();
+        //
+        // if string == "main" {
+        //     let mut blocks = CFGMaker::new().make(&code, 0, code.len());
+        //     unsafe {
+        //         let mut jit = JIT::new();
+        //         jit.compile(&mut blocks);
+        //     }
+        //     return 0;
+        // }
 
         loop {
             let frame = frame!();
@@ -371,10 +372,50 @@ impl VM {
                 Inst::goto => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                     let dst = (frame.pc as isize + branch as isize) as usize;
+                    // If loop occurred
+                    // TODO: So deep nest
                     if dst < frame.pc {
-                        // Loop
-                        jit_info_mgr.inc_count_of_loop_exec(dst, frame.pc + 3);
+                        let start = dst;
+                        let end = frame.pc + 3;
+                        let can_jit = jit_info_mgr.inc_count_of_loop_exec(start, end);
+                        if can_jit {
+                            let jit_func = jit_info_mgr.get_jit_func(start);
+                            let exec_info = match jit_func {
+                                Some(exec_info) => {
+                                    if exec_info.cant_compile {
+                                        frame.pc = dst;
+                                        continue;
+                                    }
+                                    exec_info.clone()
+                                }
+                                none => unsafe {
+                                    let mut blocks = CFGMaker::new().make(&code, start, end);
+                                    match self.jit.compile(&mut blocks) {
+                                        Ok(exec_info) => {
+                                            *none = Some(exec_info.clone());
+                                            exec_info
+                                        }
+                                        Err(_) => {
+                                            *none = Some(jit::JITExecInfo {
+                                                local_variables: FxHashMap::default(),
+                                                func: 0,
+                                                cant_compile: true,
+                                            });
+                                            frame.pc = dst;
+                                            continue;
+                                        }
+                                    }
+                                },
+                            };
+                            frame.pc = unsafe {
+                                self.jit
+                                    .run_loop(&mut self.stack, self.bp, &exec_info)
+                                    .unwrap()
+                            };
+                            continue;
+                        }
                     }
+
                     frame.pc = dst;
                 }
                 Inst::dcmpl => {
