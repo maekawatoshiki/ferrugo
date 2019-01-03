@@ -60,6 +60,7 @@ pub struct JIT {
     context: LLVMContextRef,
     module: LLVMModuleRef,
     builder: LLVMBuilderRef,
+    pass_mgr: LLVMPassManagerRef,
     cur_func: Option<LLVMValueRef>,
     env: FxHashMap<usize, LLVMValueRef>,
     bblocks: FxHashMap<usize, BasicBlockInfo>,
@@ -78,11 +79,20 @@ impl JIT {
         let module =
             LLVMModuleCreateWithNameInContext(CString::new("ferrugo").unwrap().as_ptr(), context);
         let builder = LLVMCreateBuilderInContext(context);
+        let pass_mgr = LLVMCreatePassManager();
+
+        llvm::transforms::scalar::LLVMAddReassociatePass(pass_mgr);
+        llvm::transforms::scalar::LLVMAddGVNPass(pass_mgr);
+        llvm::transforms::scalar::LLVMAddInstructionCombiningPass(pass_mgr);
+        llvm::transforms::scalar::LLVMAddPromoteMemoryToRegisterPass(pass_mgr);
+        llvm::transforms::scalar::LLVMAddTailCallEliminationPass(pass_mgr);
+        llvm::transforms::scalar::LLVMAddJumpThreadingPass(pass_mgr);
 
         JIT {
             context,
             module,
             builder,
+            pass_mgr,
             cur_func: None,
             env: FxHashMap::default(),
             bblocks: FxHashMap::default(),
@@ -214,6 +224,7 @@ impl JIT {
             self.builder,
             self.get_basic_block(blocks[0].start).retrieve(),
         );
+
         for i in 0..blocks.len() {
             self.compile_block(blocks, i, vec![])?;
         }
@@ -231,6 +242,7 @@ impl JIT {
                 ),
             );
         }
+
         for (pos, bb) in &self.bblocks {
             if let BasicBlockInfo::Unpositioned(bb) = *bb {
                 LLVMPositionBuilderAtEnd(self.builder, bb);
@@ -247,7 +259,13 @@ impl JIT {
         self.bblocks.clear();
         self.phi_stack.clear();
 
-        LLVMDumpModule(self.module);
+        when_debug!(LLVMDumpModule(self.module));
+        llvm::analysis::LLVMVerifyFunction(
+            func,
+            llvm::analysis::LLVMVerifierFailureAction::LLVMAbortProcessAction,
+        );
+
+        LLVMRunPassManager(self.pass_mgr, self.module);
 
         // TODO: Is this REALLY right way???
         let mut ee = 0 as llvm::execution_engine::LLVMExecutionEngineRef;
@@ -273,6 +291,48 @@ impl JIT {
         })
     }
 
+    unsafe fn build_phi_stack(
+        &mut self,
+        start: usize,
+        mut stack: Vec<LLVMValueRef>,
+    ) -> Vec<LLVMValueRef> {
+        let init_size = stack.len();
+
+        if let Some(phi_stacks) = self.phi_stack.get(&start) {
+            // Firstly, build llvm's phi which needs a type of all conceivavle values.
+            let src_bb = phi_stacks[0].src_bb;
+            for val in &phi_stacks[0].stack {
+                let phi = LLVMBuildPhi(
+                    self.builder,
+                    LLVMTypeOf(*val),
+                    CString::new("").unwrap().as_ptr(),
+                );
+                LLVMAddIncoming(
+                    phi,
+                    vec![*val].as_mut_slice().as_mut_ptr(),
+                    vec![src_bb].as_mut_slice().as_mut_ptr(),
+                    1,
+                );
+                stack.push(phi);
+            }
+
+            for phi_stack in &phi_stacks[1..] {
+                let src_bb = phi_stack.src_bb;
+                for (i, val) in (&phi_stack.stack).iter().enumerate() {
+                    let phi = stack[init_size + i];
+                    LLVMAddIncoming(
+                        phi,
+                        vec![*val].as_mut_slice().as_mut_ptr(),
+                        vec![src_bb].as_mut_slice().as_mut_ptr(),
+                        1,
+                    );
+                }
+            }
+        }
+
+        stack
+    }
+
     unsafe fn compile_block(
         &mut self,
         blocks: &mut Vec<Block>,
@@ -288,44 +348,10 @@ impl JIT {
 
         block!().generated = true;
 
-        let bb = self.bblocks.get(&block!().start).unwrap().retrieve();
-        LLVMPositionBuilderAtEnd(self.builder, bb);
+        let bb = self.bblocks.get_mut(&block!().start).unwrap();
+        LLVMPositionBuilderAtEnd(self.builder, bb.set_positioned().retrieve());
 
-        let init_size = init_stack.len();
-        let mut phi_stack = init_stack;
-
-        if let Some(stacks) = self.phi_stack.get(&block!().start) {
-            // Firstly, build llvm's phi which needs a type of all conceivavle values.
-            let src_bb = stacks[0].src_bb;
-            for val in &stacks[0].stack {
-                let phi = LLVMBuildPhi(
-                    self.builder,
-                    LLVMTypeOf(*val),
-                    CString::new("").unwrap().as_ptr(),
-                );
-                LLVMAddIncoming(
-                    phi,
-                    vec![*val].as_mut_slice().as_mut_ptr(),
-                    vec![src_bb].as_mut_slice().as_mut_ptr(),
-                    1,
-                );
-                phi_stack.push(phi);
-            }
-
-            for stack in &stacks[1..] {
-                let src_bb = stack.src_bb;
-                for (i, val) in (&stack.stack).iter().enumerate() {
-                    let phi = phi_stack[init_size + i];
-                    LLVMAddIncoming(
-                        phi,
-                        vec![*val].as_mut_slice().as_mut_ptr(),
-                        vec![src_bb].as_mut_slice().as_mut_ptr(),
-                        1,
-                    );
-                }
-            }
-        }
-
+        let phi_stack = self.build_phi_stack(block!().start, init_stack);
         let stack = self.compile_bytecode(block!(), phi_stack)?;
 
         fn find(pc: usize, blocks: &Vec<Block>) -> Option<usize> {
@@ -348,10 +374,9 @@ impl JIT {
                     };
                     // TODO: All ``d`` must be the same
                 }
-                if let Some(i) = find(d, blocks) {
-                    self.compile_block(blocks, i, vec![])
-                } else {
-                    Ok(0)
+                match find(d, blocks) {
+                    Some(i) => self.compile_block(blocks, i, vec![]),
+                    None => Ok(0),
                 }
             }
             BrKind::UnconditionalJmp { destination } => {
@@ -364,10 +389,15 @@ impl JIT {
             }
             BrKind::JmpRequired { destination } => {
                 let src_bb = self.get_basic_block(block!().start).retrieve();
-                let bb = self.get_basic_block(destination).retrieve();
+                let bb = self
+                    .get_basic_block(destination)
+                    .set_positioned()
+                    .retrieve();
+
                 if cur_bb_has_no_terminator(self.builder) {
                     LLVMBuildBr(self.builder, bb);
                 }
+
                 self.phi_stack
                     .entry(destination)
                     .or_insert(vec![])
@@ -514,8 +544,7 @@ impl JIT {
                 }
                 Inst::return_ => {}
                 e => {
-                    dprintln!("jit: unimplemented instruction: {}", e);
-                    panic!();
+                    dprintln!("***JIT: unimplemented instruction: {}***", e);
                     return Err(Error::CouldntCompile);
                 }
             }
@@ -566,7 +595,7 @@ impl JIT {
                     Inst::istore_0 | Inst::istore_1 | Inst::istore_2 | Inst::istore_3 => {
                         vars.insert((cur_code - Inst::istore_0) as usize, VariableType::Int);
                     }
-                    // iinc
+                    // TODO: Add
                     _ => {}
                 }
                 pc += Inst::get_inst_size(cur_code);
@@ -576,13 +605,14 @@ impl JIT {
         vars
     }
 
-    unsafe fn get_basic_block(&mut self, pc: usize) -> &BasicBlockInfo {
-        self.bblocks
-            .entry(pc)
-            .or_insert(BasicBlockInfo::Unpositioned(LLVMAppendBasicBlock(
-                self.cur_func.unwrap(),
+    unsafe fn get_basic_block(&mut self, pc: usize) -> &mut BasicBlockInfo {
+        let func = self.cur_func.unwrap();
+        self.bblocks.entry(pc).or_insert_with(|| {
+            BasicBlockInfo::Unpositioned(LLVMAppendBasicBlock(
+                func,
                 CString::new("").unwrap().as_ptr(),
-            )))
+            ))
+        })
     }
 }
 
@@ -594,6 +624,21 @@ impl BasicBlockInfo {
     pub fn retrieve(&self) -> LLVMBasicBlockRef {
         match self {
             BasicBlockInfo::Positioned(bb) | BasicBlockInfo::Unpositioned(bb) => *bb,
+        }
+    }
+
+    pub fn set_positioned(&mut self) -> &Self {
+        match self {
+            BasicBlockInfo::Unpositioned(bb) => *self = BasicBlockInfo::Positioned(*bb),
+            _ => {}
+        };
+        self
+    }
+
+    pub fn is_positioned(&self) -> bool {
+        match self {
+            BasicBlockInfo::Positioned(_) => true,
+            _ => false,
         }
     }
 }

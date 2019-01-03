@@ -51,13 +51,13 @@ impl CFGMaker {
 
 impl CFGMaker {
     pub fn make(&mut self, code: &Vec<Inst::Code>, start: usize, end: usize) -> Vec<Block> {
-        println!("{}~{}", start, end);
         let mut map = BTreeMap::new();
         let mut pc = start;
 
         while pc < end {
             let cur_code = code[pc];
             match cur_code {
+                // TODO: Add instructions
                 Inst::if_icmpne | Inst::if_icmpge | Inst::if_icmpgt | Inst::ifne => {
                     let branch = ((code[pc + 1] as i16) << 8) + code[pc + 2] as i16;
                     let dst = (pc as isize + branch as isize) as usize;
@@ -81,54 +81,58 @@ impl CFGMaker {
             pc += Inst::get_inst_size(cur_code);
         }
 
-        let mut cur = Some(start);
+        let mut start = Some(start);
         let mut blocks = vec![];
 
         for (key, kind) in map {
-            if kind != BrKind::BlockStart {
-                if cur.is_some() && cur.unwrap() < end && cur.unwrap() < key {
-                    println!(
-                        "{}[{}, {}]",
+            match kind {
+                BrKind::BlockStart => {
+                    if start.is_some() && start.unwrap() < end && start.unwrap() < key {
+                        dprintln!("cfg: range: [{}, {}]", start.unwrap(), key - 1);
+                        blocks.push(Block {
+                            code: code[start.unwrap()..key].to_vec(),
+                            start: start.unwrap(),
+                            kind: BrKind::JmpRequired { destination: key },
+                            generated: false,
+                        });
+                    }
+                    start = Some(key);
+                }
+                BrKind::ConditionalJmp { .. } | BrKind::UnconditionalJmp { .. }
+                    if start.is_some() && start.unwrap() < end && start.unwrap() < key =>
+                {
+                    dprintln!(
+                        "cfg: range: {}[{}, {}]",
                         match kind {
                             BrKind::ConditionalJmp { ref destinations } => {
                                 format!("IF({:?}) ", destinations)
                             }
                             _ => "".to_string(),
                         },
-                        cur.unwrap(),
+                        start.unwrap(),
                         key
                     );
                     blocks.push(Block {
-                        code: code[cur.unwrap()..key + 1].to_vec(),
-                        start: cur.unwrap(),
+                        code: code[start.unwrap()..key + 1].to_vec(),
+                        start: start.unwrap(),
                         kind,
                         generated: false,
                     });
-                    cur = None;
+                    start = None;
                 }
-            } else {
-                if cur.is_some() && cur.unwrap() < end && cur.unwrap() < key {
-                    println!("[{}, {}]", cur.unwrap(), key - 1);
-                    blocks.push(Block {
-                        code: code[cur.unwrap()..key].to_vec(),
-                        start: cur.unwrap(),
-                        kind: BrKind::JmpRequired { destination: key },
-                        generated: false,
-                    });
-                }
-                cur = Some(key);
+                _ => {}
             }
         }
-        if cur.is_some() && cur.unwrap() < end {
-            println!("[{}, {}]", cur.unwrap(), end - 1);
+
+        if start.is_some() && start.unwrap() < end {
+            dprintln!("cfg: range: [{}, {}]", start.unwrap(), end - 1);
             blocks.push(Block {
-                code: code[cur.unwrap()..end].to_vec(),
-                start: cur.unwrap(),
+                code: code[start.unwrap()..end].to_vec(),
+                start: start.unwrap(),
                 kind: BrKind::BlockStart,
                 generated: false,
             });
         }
-        println!("{:?}", blocks);
 
         blocks
     }

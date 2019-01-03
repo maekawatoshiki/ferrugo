@@ -80,7 +80,12 @@ impl VM {
             };
 
         macro_rules! loop_jit {
-            ($frame:expr, $start:expr, $end:expr, $failed:tt) => {
+            ($frame:expr, $do_compile:expr, $start:expr, $end:expr, $failed:expr) => {
+                if !$do_compile {
+                    $failed;
+                    continue;
+                }
+
                 let can_jit = jit_info_mgr.inc_count_of_loop_exec($start, $end);
 
                 if !can_jit {
@@ -405,15 +410,7 @@ impl VM {
                 Inst::goto => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                     let dst = (frame.pc as isize + branch as isize) as usize;
-                    // If loop occurred
-                    // TODO: So deep nest
-                    if dst < frame.pc {
-                        let start = dst;
-                        let end = frame.pc + 3;
-                        loop_jit!(frame, start, end, { frame.pc = dst });
-                        continue;
-                    }
-                    frame.pc = dst;
+                    loop_jit!(frame, dst < frame.pc, dst, frame.pc + 3, frame.pc = dst);
                 }
                 Inst::dcmpl => {
                     let val2 = self.stack[self.bp + frame.sp - 1].get_double();
@@ -446,23 +443,17 @@ impl VM {
                     let val = self.stack[self.bp + frame.sp - 1].get_int();
                     frame.sp -= 1;
                     let dst = (frame.pc as isize + branch as isize) as usize;
-                    if dst < frame.pc {
-                        let start = dst;
-                        let end = frame.pc + 3;
-                        loop_jit!(frame, start, end, {
-                            if val != 0 {
-                                frame.pc = dst;
-                            } else {
-                                frame.pc += 3;
-                            }
-                        });
-                        continue;
-                    }
-                    if val != 0 {
-                        frame.pc = dst;
-                    } else {
-                        frame.pc += 3;
-                    }
+                    loop_jit!(
+                        frame,
+                        dst < frame.pc,
+                        dst,
+                        frame.pc + 3,
+                        if val != 0 {
+                            frame.pc = dst;
+                        } else {
+                            frame.pc += 3;
+                        }
+                    );
                 }
                 Inst::if_icmpne => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
@@ -470,23 +461,13 @@ impl VM {
                     let val1 = self.stack[self.bp + frame.sp - 2].get_int();
                     frame.sp -= 2;
                     let dst = (frame.pc as isize + branch as isize) as usize;
-                    if dst < frame.pc {
-                        let start = dst;
-                        let end = frame.pc + 3;
-                        loop_jit!(frame, start, end, {
-                            if val1 != val2 {
-                                frame.pc = dst
-                            } else {
-                                frame.pc += 3;
-                            }
-                        });
-                        continue;
-                    }
-                    if val1 != val2 {
-                        frame.pc = dst
-                    } else {
-                        frame.pc += 3;
-                    }
+                    loop_jit!(frame, dst < frame.pc, dst, frame.pc + 3, {
+                        if val1 != val2 {
+                            frame.pc = dst
+                        } else {
+                            frame.pc += 3;
+                        }
+                    });
                 }
                 Inst::if_icmpge => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
@@ -494,23 +475,17 @@ impl VM {
                     let val1 = self.stack[self.bp + frame.sp - 2].get_int();
                     frame.sp -= 2;
                     let dst = (frame.pc as isize + branch as isize) as usize;
-                    if dst < frame.pc {
-                        let start = dst;
-                        let end = frame.pc + 3;
-                        loop_jit!(frame, start, end, {
-                            if val1 >= val2 {
-                                frame.pc = dst;
-                            } else {
-                                frame.pc += 3;
-                            }
-                        });
-                        continue;
-                    }
-                    if val1 >= val2 {
-                        frame.pc = dst;
-                    } else {
-                        frame.pc += 3;
-                    }
+                    loop_jit!(
+                        frame,
+                        dst < frame.pc,
+                        dst,
+                        frame.pc + 3,
+                        if val1 >= val2 {
+                            frame.pc = dst;
+                        } else {
+                            frame.pc += 3;
+                        }
+                    );
                 }
                 Inst::if_icmpgt => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
@@ -518,23 +493,17 @@ impl VM {
                     let val1 = self.stack[self.bp + frame.sp - 2].get_int();
                     frame.sp -= 2;
                     let dst = (frame.pc as isize + branch as isize) as usize;
-                    if dst < frame.pc {
-                        let start = dst;
-                        let end = frame.pc + 3;
-                        loop_jit!(frame, start, end, {
-                            if val1 > val2 {
-                                frame.pc = dst;
-                            } else {
-                                frame.pc += 3;
-                            }
-                        });
-                        continue;
-                    }
-                    if val1 > val2 {
-                        frame.pc = dst;
-                    } else {
-                        frame.pc += 3;
-                    }
+                    loop_jit!(
+                        frame,
+                        dst < frame.pc,
+                        dst,
+                        frame.pc + 3,
+                        if val1 > val2 {
+                            frame.pc = dst;
+                        } else {
+                            frame.pc += 3;
+                        }
+                    );
                 }
                 // Inst::ifnonnull => {
                 //     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;

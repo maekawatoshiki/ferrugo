@@ -11,3 +11,12 @@ macro_rules! dprintln {
     }
 }
 
+#[macro_export]
+macro_rules! when_debug {
+    ($($arg:tt)*) => {
+        #[cfg(debug_assertions)]
+        {
+            $($arg)*;
+        }
+    };
+}
