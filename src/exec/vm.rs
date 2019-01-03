@@ -79,18 +79,51 @@ impl VM {
                 panic!()
             };
 
-        // let string = unsafe { &*frame.class.unwrap() }
-        //     .get_utf8_from_const_pool(frame.method_info.name_index as usize)
-        //     .unwrap();
-        //
-        // if string == "main" {
-        //     let mut blocks = CFGMaker::new().make(&code, 0, code.len());
-        //     unsafe {
-        //         let mut jit = JIT::new();
-        //         jit.compile(&mut blocks);
-        //     }
-        //     return 0;
-        // }
+        macro_rules! loop_jit {
+            ($frame:expr, $start:expr, $end:expr, $failed:tt) => {
+                let can_jit = jit_info_mgr.inc_count_of_loop_exec($start, $end);
+
+                if !can_jit {
+                    $failed;
+                    continue;
+                }
+
+                let jit_func = jit_info_mgr.get_jit_func($start);
+                let exec_info = match jit_func {
+                    Some(exec_info) => {
+                        if exec_info.cant_compile {
+                            $failed;
+                            continue;
+                        }
+                        exec_info.clone()
+                    }
+                    none => unsafe {
+                        let mut blocks = CFGMaker::new().make(&code, $start, $end);
+                        match self.jit.compile(&mut blocks) {
+                            Ok(exec_info) => {
+                                *none = Some(exec_info.clone());
+                                exec_info
+                            }
+                            Err(_) => {
+                                *none = Some(jit::JITExecInfo {
+                                    local_variables: FxHashMap::default(),
+                                    func: 0,
+                                    cant_compile: true,
+                                });
+                                $failed;
+                                continue;
+                            }
+                        }
+                    },
+                };
+
+                $frame.pc = unsafe {
+                    self.jit
+                        .run_loop(&mut self.stack, self.bp, &exec_info)
+                        .unwrap()
+                };
+            };
+        }
 
         loop {
             let frame = frame!();
@@ -377,46 +410,9 @@ impl VM {
                     if dst < frame.pc {
                         let start = dst;
                         let end = frame.pc + 3;
-                        let can_jit = jit_info_mgr.inc_count_of_loop_exec(start, end);
-                        if can_jit {
-                            let jit_func = jit_info_mgr.get_jit_func(start);
-                            let exec_info = match jit_func {
-                                Some(exec_info) => {
-                                    if exec_info.cant_compile {
-                                        frame.pc = dst;
-                                        continue;
-                                    }
-                                    exec_info.clone()
-                                }
-                                none => unsafe {
-                                    let mut blocks = CFGMaker::new().make(&code, start, end);
-                                    match self.jit.compile(&mut blocks) {
-                                        Ok(exec_info) => {
-                                            *none = Some(exec_info.clone());
-                                            exec_info
-                                        }
-                                        Err(_) => {
-                                            println!("here");
-                                            *none = Some(jit::JITExecInfo {
-                                                local_variables: FxHashMap::default(),
-                                                func: 0,
-                                                cant_compile: true,
-                                            });
-                                            frame.pc = dst;
-                                            continue;
-                                        }
-                                    }
-                                },
-                            };
-                            frame.pc = unsafe {
-                                self.jit
-                                    .run_loop(&mut self.stack, self.bp, &exec_info)
-                                    .unwrap()
-                            };
-                            continue;
-                        }
+                        loop_jit!(frame, start, end, { frame.pc = dst });
+                        continue;
                     }
-
                     frame.pc = dst;
                 }
                 Inst::dcmpl => {
@@ -449,8 +445,21 @@ impl VM {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                     let val = self.stack[self.bp + frame.sp - 1].get_int();
                     frame.sp -= 1;
+                    let dst = (frame.pc as isize + branch as isize) as usize;
+                    if dst < frame.pc {
+                        let start = dst;
+                        let end = frame.pc + 3;
+                        loop_jit!(frame, start, end, {
+                            if val != 0 {
+                                frame.pc = dst;
+                            } else {
+                                frame.pc += 3;
+                            }
+                        });
+                        continue;
+                    }
                     if val != 0 {
-                        frame.pc = (frame.pc as isize + branch as isize) as usize;
+                        frame.pc = dst;
                     } else {
                         frame.pc += 3;
                     }
@@ -459,57 +468,19 @@ impl VM {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                     let val2 = self.stack[self.bp + frame.sp - 1].get_int();
                     let val1 = self.stack[self.bp + frame.sp - 2].get_int();
-                    let dst = (frame.pc as isize + branch as isize) as usize;
                     frame.sp -= 2;
+                    let dst = (frame.pc as isize + branch as isize) as usize;
                     if dst < frame.pc {
                         let start = dst;
                         let end = frame.pc + 3;
-                        let can_jit = jit_info_mgr.inc_count_of_loop_exec(start, end);
-                        if can_jit {
-                            let jit_func = jit_info_mgr.get_jit_func(start);
-                            let exec_info = match jit_func {
-                                Some(exec_info) => {
-                                    if exec_info.cant_compile {
-                                        if val1 != val2 {
-                                            frame.pc = dst
-                                        } else {
-                                            frame.pc += 3;
-                                        }
-                                        continue;
-                                    }
-                                    exec_info.clone()
-                                }
-                                none => unsafe {
-                                    let mut blocks = CFGMaker::new().make(&code, start, end);
-                                    match self.jit.compile(&mut blocks) {
-                                        Ok(exec_info) => {
-                                            *none = Some(exec_info.clone());
-                                            exec_info
-                                        }
-                                        Err(_) => {
-                                            *none = Some(jit::JITExecInfo {
-                                                local_variables: FxHashMap::default(),
-                                                func: 0,
-                                                cant_compile: true,
-                                            });
-                                            if val1 != val2 {
-                                                frame.pc = dst
-                                            } else {
-                                                frame.pc += 3;
-                                            }
-                                            continue;
-                                        }
-                                    }
-                                },
-                            };
-                            println!("hee");
-                            frame.pc = unsafe {
-                                self.jit
-                                    .run_loop(&mut self.stack, self.bp, &exec_info)
-                                    .unwrap()
-                            };
-                            continue;
-                        }
+                        loop_jit!(frame, start, end, {
+                            if val1 != val2 {
+                                frame.pc = dst
+                            } else {
+                                frame.pc += 3;
+                            }
+                        });
+                        continue;
                     }
                     if val1 != val2 {
                         frame.pc = dst
@@ -521,23 +492,49 @@ impl VM {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                     let val2 = self.stack[self.bp + frame.sp - 1].get_int();
                     let val1 = self.stack[self.bp + frame.sp - 2].get_int();
+                    frame.sp -= 2;
+                    let dst = (frame.pc as isize + branch as isize) as usize;
+                    if dst < frame.pc {
+                        let start = dst;
+                        let end = frame.pc + 3;
+                        loop_jit!(frame, start, end, {
+                            if val1 >= val2 {
+                                frame.pc = dst;
+                            } else {
+                                frame.pc += 3;
+                            }
+                        });
+                        continue;
+                    }
                     if val1 >= val2 {
-                        frame.pc = (frame.pc as isize + branch as isize) as usize;
+                        frame.pc = dst;
                     } else {
                         frame.pc += 3;
                     }
-                    frame.sp -= 2;
                 }
                 Inst::if_icmpgt => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                     let val2 = self.stack[self.bp + frame.sp - 1].get_int();
                     let val1 = self.stack[self.bp + frame.sp - 2].get_int();
+                    frame.sp -= 2;
+                    let dst = (frame.pc as isize + branch as isize) as usize;
+                    if dst < frame.pc {
+                        let start = dst;
+                        let end = frame.pc + 3;
+                        loop_jit!(frame, start, end, {
+                            if val1 > val2 {
+                                frame.pc = dst;
+                            } else {
+                                frame.pc += 3;
+                            }
+                        });
+                        continue;
+                    }
                     if val1 > val2 {
-                        frame.pc = (frame.pc as isize + branch as isize) as usize;
+                        frame.pc = dst;
                     } else {
                         frame.pc += 3;
                     }
-                    frame.sp -= 2;
                 }
                 // Inst::ifnonnull => {
                 //     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;

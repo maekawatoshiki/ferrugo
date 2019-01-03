@@ -397,7 +397,7 @@ impl JIT {
                 | Inst::iconst_3
                 | Inst::iconst_4
                 | Inst::iconst_5 => {
-                    let num = (cur_code - Inst::iconst_0) as i64 as u64;
+                    let num = (cur_code as i64 - Inst::iconst_0 as i64) as u64;
                     stack.push(LLVMConstInt(LLVMInt32TypeInContext(self.context), num, 1));
                 }
                 Inst::istore_0 | Inst::istore_1 | Inst::istore_2 | Inst::istore_3 => {
@@ -432,7 +432,24 @@ impl JIT {
                         val2,
                         CString::new("icmp").unwrap().as_ptr(),
                     );
-                    println!("{:?} {}", block.kind, block.start);
+                    let destinations = block.kind.get_conditional_jump_destinations();
+                    let bb_then = self.get_basic_block(destinations[0]).retrieve();
+                    let bb_else = self.get_basic_block(destinations[1]).retrieve();
+
+                    LLVMBuildCondBr(self.builder, cond_val, bb_then, bb_else);
+                }
+                Inst::ifne => {
+                    let val = stack.pop().unwrap();
+                    let cond_val = LLVMBuildICmp(
+                        self.builder,
+                        match cur_code {
+                            Inst::ifne => llvm::LLVMIntPredicate::LLVMIntNE,
+                            _ => unreachable!(),
+                        },
+                        val,
+                        LLVMConstInt(LLVMInt32TypeInContext(self.context), 0, 0),
+                        CString::new("icmp").unwrap().as_ptr(),
+                    );
                     let destinations = block.kind.get_conditional_jump_destinations();
                     let bb_then = self.get_basic_block(destinations[0]).retrieve();
                     let bb_else = self.get_basic_block(destinations[1]).retrieve();
@@ -470,9 +487,35 @@ impl JIT {
                         CString::new("iadd").unwrap().as_ptr(),
                     ));
                 }
+                Inst::irem => {
+                    let val2 = stack.pop().unwrap();
+                    let val1 = stack.pop().unwrap();
+                    stack.push(LLVMBuildSRem(
+                        self.builder,
+                        val1,
+                        val2,
+                        CString::new("irem").unwrap().as_ptr(),
+                    ));
+                }
+                Inst::bipush => {
+                    stack.push(LLVMConstInt(
+                        LLVMInt32TypeInContext(self.context),
+                        code[pc + 1] as i8 as u64,
+                        0,
+                    ));
+                }
+                Inst::sipush => {
+                    let val = ((code[pc + 1] as i16) << 8) + code[pc + 2] as i16;
+                    stack.push(LLVMConstInt(
+                        LLVMInt32TypeInContext(self.context),
+                        val as u64,
+                        0,
+                    ));
+                }
                 Inst::return_ => {}
                 e => {
                     dprintln!("jit: unimplemented instruction: {}", e);
+                    panic!();
                     return Err(Error::CouldntCompile);
                 }
             }

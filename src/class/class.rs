@@ -174,7 +174,7 @@ impl JITInfoManager {
 
     pub fn inc_count_of_loop_exec(&mut self, start: usize, end: usize) -> bool {
         let (_, count, _) = self.loop_count.entry(start).or_insert((end, 1, None));
-        let do_compile = *count > 2; // TODO: No magic number
+        let do_compile = *count > 3; // TODO: No magic number
         if !do_compile {
             *count += 1;
         }
