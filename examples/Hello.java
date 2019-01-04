@@ -76,7 +76,7 @@ class Hello {
       }
     }
     System.out.println("jit test " + count);
-
+    
     System.out.println(123);
     System.out.println(123456789);
     System.out.println(calc_pi());
@@ -85,8 +85,7 @@ class Hello {
     short x = 6553, y = 3;
     x += y;
     
-    fibo(1); 
-    for (int i = 1; i <= 20; i++)
+    for (int i = 2; i <= 36; i++)
       System.out.println(fibo(i));
     
     Point p = new Point();
@@ -106,7 +105,7 @@ class Hello {
     person.show();
     Teacher eng = new Teacher("uint256_t", "English");
     eng.show();
-    
+   
     for (int i = 1; i <= 50; i++) {
       if (is_prime(i)) System.out.println(i + " is prime");
     }

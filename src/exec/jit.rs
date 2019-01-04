@@ -231,7 +231,6 @@ impl JIT {
 
         let func_name = format!("ferrugo-jit-func-{}", random::<u32>());
 
-        when_debug!(LLVMDumpModule(self.module));
         let func = LLVMAddFunction(
             self.module,
             CString::new(func_name.as_str()).unwrap().as_ptr(),
@@ -303,8 +302,8 @@ impl JIT {
         self.env.clear();
         self.bblocks.clear();
         self.phi_stack.clear();
-
-        when_debug!(LLVMDumpModule(self.module));
+        self.cur_func = None;
+        self.cur_func_indices = None;
 
         llvm::analysis::LLVMVerifyFunction(
             func,
@@ -314,6 +313,8 @@ impl JIT {
         if let Err(e) = compiling_error {
             return Err(e);
         }
+
+        when_debug!(LLVMDumpValue(func));
 
         LLVMRunPassManager(self.pass_mgr, self.module);
 
@@ -486,7 +487,6 @@ impl JIT {
         self.bblocks.clear();
         self.phi_stack.clear();
 
-        when_debug!(LLVMDumpModule(self.module));
         llvm::analysis::LLVMVerifyFunction(
             func,
             llvm::analysis::LLVMVerifierFailureAction::LLVMAbortProcessAction,
@@ -495,6 +495,8 @@ impl JIT {
         if let Err(e) = compiling_error {
             return Err(e);
         }
+
+        when_debug!(LLVMDumpModule(self.module));
 
         LLVMRunPassManager(self.pass_mgr, self.module);
 
@@ -674,6 +676,15 @@ impl JIT {
                         self.declare_local_var(name, &VariableType::Int),
                     );
                 }
+                Inst::istore => {
+                    let index = code[pc as usize + 1] as usize;
+                    let val = stack.pop().unwrap();
+                    LLVMBuildStore(
+                        self.builder,
+                        val,
+                        self.declare_local_var(index, &VariableType::Int),
+                    );
+                }
                 Inst::iload_0 | Inst::iload_1 | Inst::iload_2 | Inst::iload_3 => {
                     let name = (cur_code - Inst::iload_0) as usize;
                     let var = self.declare_local_var(name, &VariableType::Int);
@@ -682,6 +693,15 @@ impl JIT {
                         var,
                         CString::new("").unwrap().as_ptr(),
                     ));
+                }
+                Inst::iload => {
+                    let index = code[pc + 1] as usize;
+                    let var = self.declare_local_var(index, &VariableType::Int);
+                    stack.push(LLVMBuildLoad(
+                        self.builder,
+                        var,
+                        CString::new("").unwrap().as_ptr(),
+                    ))
                 }
                 Inst::if_icmpne | Inst::if_icmpge | Inst::if_icmpgt => {
                     let val2 = stack.pop().unwrap();
@@ -798,6 +818,22 @@ impl JIT {
                         val as u64,
                         0,
                     ));
+                }
+                Inst::ldc => {
+                    let cur_class = &mut *self.cur_class.unwrap();
+                    let index = code[pc + 1] as usize;
+                    match cur_class.classfile.constant_pool[index] {
+                        Constant::IntegerInfo { i } => stack.push(LLVMConstInt(
+                            LLVMInt32TypeInContext(self.context),
+                            i as u64,
+                            0,
+                        )),
+                        Constant::FloatInfo { f } => stack.push(LLVMConstReal(
+                            LLVMFloatTypeInContext(self.context),
+                            f as f64,
+                        )),
+                        _ => unimplemented!(),
+                    };
                 }
                 Inst::ireturn if !loop_compile => {
                     let val = stack.pop().unwrap();
@@ -952,6 +988,10 @@ impl JIT {
                     }
                     Inst::istore_0 | Inst::istore_1 | Inst::istore_2 | Inst::istore_3 => {
                         vars.insert((cur_code - Inst::istore_0) as usize, VariableType::Int);
+                    }
+                    Inst::istore | Inst::iload => {
+                        let index = block.code[pc + 1] as usize;
+                        vars.insert(index, VariableType::Int);
                     }
                     // TODO: Add
                     _ => {}
