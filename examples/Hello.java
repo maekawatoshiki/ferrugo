@@ -85,8 +85,7 @@ class Hello {
     short x = 6553, y = 3;
     x += y;
     
-    for (int i = 2; i <= 36; i++)
-      System.out.println(fibo(i));
+    System.out.println("fibo(36) = " + fibo(36));
     
     Point p = new Point();
     p.x = 2;

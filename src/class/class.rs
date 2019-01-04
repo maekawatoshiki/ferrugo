@@ -1,5 +1,5 @@
 use super::super::exec::frame::Variable;
-use super::super::exec::jit::{FuncJITExecInfo, LoopJITExecInfo, VariableType};
+use super::super::exec::jit::{FuncJITExecInfo, LoopJITExecInfo};
 use super::super::gc::gc::GcType;
 use super::classfile::read::ClassFileReader;
 use super::classfile::{classfile::ClassFile, field::FieldInfo, method::MethodInfo};
@@ -197,21 +197,5 @@ impl JITInfoManager {
 
     pub fn get_jit_func(&mut self) -> &mut Option<FuncJITExecInfo> {
         &mut self.whole_method.1
-    }
-
-    pub fn register_jit_func_ret_ty(&mut self, ret_ty: Option<VariableType>) {
-        match &mut self.whole_method.1 {
-            Some(ref mut exec_info) => {
-                exec_info.ret_ty = ret_ty;
-            }
-            none => {
-                *none = Some(FuncJITExecInfo {
-                    args_ty: vec![],
-                    ret_ty: ret_ty,
-                    cant_compile: false,
-                    func: 0,
-                });
-            }
-        }
     }
 }

@@ -1,6 +1,5 @@
 use super::super::class::class::Class;
 use super::super::class::classfile::constant::Constant;
-use super::super::class::classfile::method::MethodInfo;
 use super::super::gc::gc::GcType;
 use super::cfg::{Block, BrKind};
 use super::frame::Variable;
@@ -27,6 +26,7 @@ pub enum Error {
 #[derive(Debug, Clone, PartialEq)]
 pub enum VariableType {
     Int,
+    Void,
 }
 
 trait CastIntoLLVMType {
@@ -37,6 +37,7 @@ impl CastIntoLLVMType for VariableType {
     unsafe fn to_llvmty(&self, ctx: LLVMContextRef) -> LLVMTypeRef {
         match self {
             &VariableType::Int => LLVMInt32TypeInContext(ctx),
+            &VariableType::Void => LLVMVoidTypeInContext(ctx),
         }
     }
 }
@@ -48,12 +49,33 @@ pub struct LoopJITExecInfo {
     pub cant_compile: bool,
 }
 
+impl LoopJITExecInfo {
+    pub fn cant_compile() -> Self {
+        LoopJITExecInfo {
+            local_variables: FxHashMap::default(),
+            func: 0,
+            cant_compile: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FuncJITExecInfo {
     pub func: u64,
     pub cant_compile: bool,
     pub args_ty: Vec<VariableType>,
     pub ret_ty: Option<VariableType>,
+}
+
+impl FuncJITExecInfo {
+    pub fn cant_compile() -> Self {
+        FuncJITExecInfo {
+            func: 0,
+            cant_compile: true,
+            args_ty: vec![],
+            ret_ty: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -161,12 +183,15 @@ impl JIT {
         };
 
         sp -= exec_info.args_ty.len();
-        if let Some(ret_ty) = &exec_info.ret_ty {
-            stack[bp + sp] = match ret_ty {
-                VariableType::Int => Variable::Int(ret as i32),
-            };
-            sp += 1;
-        }
+
+        let ret_ty = exec_info.ret_ty.clone().unwrap();
+        match ret_ty {
+            VariableType::Void => {}
+            VariableType::Int => {
+                stack[bp + sp] = Variable::Int(ret as i32);
+                sp += 1
+            }
+        };
 
         Some(sp)
     }
@@ -193,6 +218,7 @@ impl JIT {
         for (i, (offset, ty)) in exec_info.local_variables.iter().enumerate() {
             stack[bp + offset] = match ty {
                 VariableType::Int => Variable::Int(*(raw_local_vars[i] as *mut i32)),
+                _ => return None,
             };
             Box::from_raw(raw_local_vars[i]);
         }
@@ -208,16 +234,12 @@ impl JIT {
         class: GcType<Class>,
         blocks: &mut Vec<Block>,
         arg_types: &Vec<VariableType>,
-        ret_ty: &Option<VariableType>,
     ) -> CResult<FuncJITExecInfo> {
         self.cur_class = Some(class);
         self.cur_func_indices = Some((name_index, descriptor_index));
 
-        let func_ret_ty = match ret_ty {
-            Some(ty) => ty.to_llvmty(self.context),
-            None => LLVMVoidTypeInContext(self.context),
-        };
-
+        let ret_ty = self.infer_return_type(blocks)?;
+        let func_ret_ty = ret_ty.to_llvmty(self.context);
         let func_ty = LLVMFunctionType(
             func_ret_ty,
             arg_types
@@ -341,7 +363,7 @@ impl JIT {
             func: func_raw,
             cant_compile: false,
             args_ty: arg_types.clone(),
-            ret_ty: ret_ty.clone(),
+            ret_ty: Some(ret_ty),
         })
     }
 
@@ -843,6 +865,7 @@ impl JIT {
                     LLVMBuildRetVoid(self.builder);
                 }
                 Inst::invokestatic => {
+                    // TODO: The following code should be a method.
                     let cur_class = &mut *self.cur_class.unwrap();
                     let mref_index = ((code[pc + 1] as usize) << 8) + code[pc + 2] as usize;
                     let (class_index, name_and_type_index) = fld!(
@@ -861,57 +884,34 @@ impl JIT {
                         .unwrap();
                     let class =
                         load_class(cur_class.classheap.unwrap(), self.objectheap, class_name);
-                    let mut method = MethodInfo::new();
-                    if let Constant::NameAndTypeInfo {
+                    let (name_index, descriptor_index) = fld!(
+                        Constant::NameAndTypeInfo,
+                        &cur_class.classfile.constant_pool[name_and_type_index],
                         name_index,
-                        descriptor_index,
-                    } = &cur_class.classfile.constant_pool[name_and_type_index]
-                    {
-                        method.name_index = *name_index;
-                        method.descriptor_index = *descriptor_index;
-                    }
-
-                    method.access_flags = 0;
-
-                    let name = cur_class.classfile.constant_pool[method.name_index as usize]
-                        .get_utf8()
-                        .unwrap();
-                    let descriptor = cur_class.classfile.constant_pool
-                        [method.descriptor_index as usize]
-                        .get_utf8()
-                        .unwrap();
-                    let (_virtual_class, _method2) =
-                        (&*class).get_method(name, descriptor).unwrap();
-                    let jit_info_mgr = (&mut *class).get_jit_info_mgr(
-                        method.name_index as usize,
-                        method.descriptor_index as usize,
+                        descriptor_index
                     );
+                    let name = cur_class.classfile.constant_pool[name_index]
+                        .get_utf8()
+                        .unwrap();
+                    let descriptor = cur_class.classfile.constant_pool[descriptor_index]
+                        .get_utf8()
+                        .unwrap();
+                    let (_virtual_class, exec_method) =
+                        (&*class).get_method(name, descriptor).unwrap();
+
+                    let jit_info_mgr = (&mut *class).get_jit_info_mgr(name_index, descriptor_index);
                     let jit_func = jit_info_mgr.get_jit_func();
-                    if Some((method.name_index as usize, method.descriptor_index as usize))
-                        == self.cur_func_indices
+                    let llvm_func = if Some((
+                        exec_method.name_index as usize,
+                        exec_method.descriptor_index as usize,
+                    )) == self.cur_func_indices
                     {
-                        let cur_func = self.cur_func.unwrap();
-                        let mut args = vec![];
-                        for _ in 0..LLVMCountParams(cur_func) {
-                            args.push(stack.pop().unwrap());
-                        }
-                        args.reverse();
-                        let ret = LLVMBuildCall(
-                            self.builder,
-                            cur_func,
-                            args.as_mut_slice().as_mut_ptr(),
-                            args.len() as u32,
-                            CString::new("").unwrap().as_ptr(),
-                        );
-                        if LLVMGetTypeKind(LLVMGetReturnType(LLVMTypeOf(cur_func)))
-                            != llvm::LLVMTypeKind::LLVMVoidTypeKind
-                        {
-                            stack.push(ret);
-                        }
+                        self.cur_func.unwrap()
                     } else {
                         if jit_func.is_none() {
                             return Err(Error::CouldntCompile);
-                        };
+                        }
+
                         let exec_info = jit_func.clone().unwrap();
                         if exec_info.cant_compile {
                             return Err(Error::CouldntCompile);
@@ -919,22 +919,27 @@ impl JIT {
                         if exec_info.func == 0 {
                             return Err(Error::CouldntCompile);
                         }
-                        let func = *self.raw_func_addr_to_llvm_val.get(&exec_info.func).unwrap();
-                        let mut args = vec![];
-                        for _ in 0..exec_info.args_ty.len() {
-                            args.push(stack.pop().unwrap());
-                        }
-                        args.reverse();
-                        let ret = LLVMBuildCall(
-                            self.builder,
-                            func,
-                            args.as_mut_ptr(),
-                            args.len() as u32,
-                            CString::new("").unwrap().as_ptr(),
-                        );
-                        if exec_info.ret_ty.is_some() {
-                            stack.push(ret);
-                        }
+
+                        *self.raw_func_addr_to_llvm_val.get(&exec_info.func).unwrap()
+                    };
+
+                    let mut args = vec![];
+                    for _ in 0..LLVMCountParams(llvm_func) {
+                        args.push(stack.pop().unwrap());
+                    }
+                    args.reverse();
+
+                    let ret = LLVMBuildCall(
+                        self.builder,
+                        llvm_func,
+                        args.as_mut_slice().as_mut_ptr(),
+                        args.len() as u32,
+                        CString::new("").unwrap().as_ptr(),
+                    );
+                    if LLVMGetTypeKind(LLVMGetReturnType(LLVMTypeOf(llvm_func)))
+                        != llvm::LLVMTypeKind::LLVMVoidTypeKind
+                    {
+                        stack.push(ret);
                     }
                 }
                 e => {
@@ -1001,6 +1006,23 @@ impl JIT {
         }
 
         vars
+    }
+
+    fn infer_return_type(&mut self, blocks: &Vec<Block>) -> CResult<VariableType> {
+        for block in blocks {
+            let mut pc = 0;
+            while pc < block.code.len() {
+                let cur_code = block.code[pc];
+                match cur_code {
+                    Inst::return_ => return Ok(VariableType::Void),
+                    Inst::ireturn => return Ok(VariableType::Int),
+                    // TODO: Add
+                    _ => {}
+                }
+                pc += Inst::get_inst_size(cur_code);
+            }
+        }
+        Err(Error::CouldntCompile)
     }
 
     unsafe fn get_basic_block(&mut self, pc: usize) -> &mut BasicBlockInfo {

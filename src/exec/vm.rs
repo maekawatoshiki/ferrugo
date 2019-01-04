@@ -1,7 +1,7 @@
 use super::super::class::class::Class;
 use super::super::class::classfile::attribute::Attribute;
 use super::super::class::classfile::constant::Constant;
-use super::super::class::classfile::method::MethodInfo;
+use super::super::class::classfile::{method, method::MethodInfo};
 use super::super::class::classheap::ClassHeap;
 use super::super::gc::{gc, gc::GcType};
 use super::cfg::CFGMaker;
@@ -814,15 +814,18 @@ impl VM {
         #[rustfmt::skip]
         macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
 
-        let frame = frame!();
-        let frame_class = unsafe { &*frame.class.unwrap() };
-        let mref_index = match frame.method_info.get_code_attribute() {
-            Some(Attribute::Code { code, .. }) => {
-                ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
+        let frame_class = unsafe { &*frame!().class.unwrap() };
+        let mref_index = {
+            let frame = frame!();
+            match frame.method_info.get_code_attribute() {
+                Some(Attribute::Code { code, .. }) => {
+                    ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
+                }
+                _ => panic!(),
             }
-            _ => panic!(),
         };
-        frame.pc += 3;
+        frame!().pc += 3;
+
         let (class_index, name_and_type_index) = fld!(
             Constant::MethodrefInfo,
             &frame_class.classfile.constant_pool[mref_index],
@@ -838,144 +841,43 @@ impl VM {
             .get_utf8()
             .unwrap();
         let class = load_class(self.classheap, self.objectheap, class_name);
-        let mut method = MethodInfo::new();
-        if let Constant::NameAndTypeInfo {
+        let (name_index, descriptor_index) = fld!(
+            Constant::NameAndTypeInfo,
+            &frame_class.classfile.constant_pool[name_and_type_index],
             name_index,
-            descriptor_index,
-        } = &frame_class.classfile.constant_pool[name_and_type_index]
-        {
-            method.name_index = *name_index;
-            method.descriptor_index = *descriptor_index;
-        }
+            descriptor_index
+        );
 
-        method.access_flags = 0;
-
-        let name = frame_class.classfile.constant_pool[method.name_index as usize]
+        let name = frame_class.classfile.constant_pool[name_index]
             .get_utf8()
             .unwrap();
-        let descriptor = frame_class.classfile.constant_pool[method.descriptor_index as usize]
+        let descriptor = frame_class.classfile.constant_pool[descriptor_index]
             .get_utf8()
             .unwrap();
-        let (virtual_class, method2) = unsafe { &*class }.get_method(name, descriptor).unwrap();
+        let (virtual_class, exec_method) = unsafe { &*class }.get_method(name, descriptor).unwrap();
+        let params_num = count_params(descriptor.as_str()) + if is_invoke_static { 0 } else { 1 };
+        let former_sp = frame!().sp as usize;
 
-        let params_num = {
-            // TODO: long/double takes 2 stack position
-            let mut count = 0usize;
-            let mut i = 1;
-            while i < descriptor.len() {
-                if descriptor.chars().nth(i).unwrap() == 'L' {
-                    while descriptor.chars().nth(i).unwrap() != ';' {
-                        i += 1
-                    }
-                }
-                if descriptor.chars().nth(i).unwrap() == ')' {
-                    break;
-                }
-                if descriptor.chars().nth(i).unwrap() == 'J'
-                    || descriptor.chars().nth(i).unwrap() == 'D'
-                {
-                    // count += 1;
-                }
-                count += 1;
-                i += 1;
-            }
-
-            if is_invoke_static {
-                count
-            } else {
-                count + 1
-            }
-        };
-
-        let jit_info_mgr = unsafe { &mut *frame.class.unwrap() }
-            .get_jit_info_mgr(method.name_index as usize, method.descriptor_index as usize);
-
-        if jit_info_mgr.inc_count_of_func_exec() && !(method2.access_flags & 0x0100 > 0) {
-            let jit_func = jit_info_mgr.get_jit_func();
-            let exec_info = if let Some(ref mut exec_info) = jit_func {
-                if exec_info.cant_compile {
-                    None
-                } else {
-                    if exec_info.func == 0 {
-                        let code = match method2.get_code_attribute() {
-                            Some(Attribute::Code { code, .. }) => code,
-                            _ => panic!(),
-                        };
-                        let mut blocks = CFGMaker::new().make(&code, 0, code.len());
-                        let mut arg_types = vec![];
-                        for i in self.bp + frame.sp - params_num..self.bp + frame.sp {
-                            match self.stack[i] {
-                                Variable::Char(_) | Variable::Short(_) | Variable::Int(_) => {
-                                    arg_types.push(VariableType::Int)
-                                }
-                                // TODO
-                                _ => {
-                                    exec_info.cant_compile = true;
-                                }
-                            }
-                        }
-                        if !exec_info.cant_compile {
-                            match unsafe {
-                                self.jit.compile_func(
-                                    (method.name_index as usize, method.descriptor_index as usize),
-                                    class,
-                                    &mut blocks,
-                                    &arg_types,
-                                    &exec_info.ret_ty.clone(),
-                                )
-                            } {
-                                Ok(exec_info2) => {
-                                    *exec_info = exec_info2.clone();
-                                    Some(exec_info2.clone())
-                                }
-                                Err(_) => {
-                                    *exec_info = jit::FuncJITExecInfo {
-                                        args_ty: vec![],
-                                        func: 0,
-                                        cant_compile: true,
-                                        ret_ty: None,
-                                    };
-                                    None
-                                }
-                            }
-                        } else {
-                            None
-                        }
-                    } else {
-                        Some(exec_info.clone())
-                    }
-                }
-            } else {
-                unreachable!();
-            };
-            if let Some(exec_info) = exec_info {
-                unsafe {
-                    if let Some(sp) =
-                        self.jit
-                            .run_func(&mut self.stack, self.bp, frame.sp, &exec_info)
-                    {
-                        frame.sp = sp;
-                        return;
-                    }
-                }
-            }
+        if let Some(sp) = unsafe {
+            self.run_jit_compiled_func(&exec_method, former_sp, params_num, virtual_class)
+        } {
+            frame!().sp = sp;
+            return;
         }
-
-        let former_sp = frame.sp as usize;
 
         self.frame_stack.push(Frame::new());
 
         let frame = frame!();
 
-        frame.method_info = method2;
+        frame.method_info = exec_method;
 
-        method.access_flags = frame.method_info.access_flags;
-
-        frame.class = if method.access_flags & 0x0020/*=ACC_SUPER*/> 0 {
-            Some(unsafe { &*virtual_class }.get_super_class().unwrap())
-        } else {
-            Some(virtual_class)
-        };
+        // https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html#jvms-4.1
+        // > The ACC_SUPER flag exists for backward compatibility with code compiled by older
+        // > compilers for the Java programming language. In Oracle’s JDK prior to release 1.0.2, the
+        // > compiler generated ClassFile access_flags in which the flag now representing ACC_SUPER
+        // > had no assigned meaning, and Oracle's Java Virtual Machine implementation ignored the
+        // > flag if it was set.
+        frame.class = Some(virtual_class);
 
         let mut sp_start = params_num;
         if frame.method_info.access_flags & 0x0100 > 0 {
@@ -1004,17 +906,79 @@ impl VM {
         if !descriptor.ends_with(")V") {
             // Returns a value
             frame.sp += 1;
-            match self.stack[self.bp + frame.sp - 1] {
-                Variable::Char(_) | Variable::Short(_) | Variable::Int(_) => {
-                    jit_info_mgr.register_jit_func_ret_ty(Some(VariableType::Int))
-                }
-                // TODO
-                _ => jit_info_mgr.register_jit_func_ret_ty(Some(VariableType::Int)),
-            }
-        } else {
-            // Void
-            jit_info_mgr.register_jit_func_ret_ty(None)
         }
+    }
+
+    unsafe fn run_jit_compiled_func(
+        &mut self,
+        exec_method: &MethodInfo,
+        sp: usize,
+        params_num: usize,
+        class: GcType<Class>,
+    ) -> Option<usize> {
+        let jit_info_mgr = (&mut *class).get_jit_info_mgr(
+            exec_method.name_index as usize,
+            exec_method.descriptor_index as usize,
+        );
+
+        if !jit_info_mgr.inc_count_of_func_exec() {
+            return None;
+        }
+
+        if exec_method.check_access_flags(method::access_flags::ACC_PACC_NATIVE) {
+            return None;
+        }
+
+        let jit_func = jit_info_mgr.get_jit_func();
+        let exec_info = match jit_func {
+            Some(exec_info) if exec_info.cant_compile => return None,
+            Some(exec_info) => exec_info.clone(),
+            none => {
+                let code = match exec_method.get_code_attribute() {
+                    Some(Attribute::Code { code, .. }) => code,
+                    _ => panic!(),
+                };
+                let mut blocks = CFGMaker::new().make(&code, 0, code.len());
+                let mut arg_types = vec![];
+
+                for i in self.bp + sp - params_num..self.bp + sp {
+                    match self.stack[i] {
+                        Variable::Char(_) | Variable::Short(_) | Variable::Int(_) => {
+                            arg_types.push(VariableType::Int)
+                        }
+                        _ => {
+                            *none = Some(jit::FuncJITExecInfo::cant_compile());
+                            return None;
+                        }
+                    }
+                }
+
+                match self.jit.compile_func(
+                    (
+                        exec_method.name_index as usize,
+                        exec_method.descriptor_index as usize,
+                    ),
+                    class,
+                    &mut blocks,
+                    &arg_types,
+                ) {
+                    Ok(exec_info) => {
+                        *none = Some(exec_info.clone());
+                        exec_info.clone()
+                    }
+                    Err(_) => {
+                        *none = Some(jit::FuncJITExecInfo::cant_compile());
+                        return None;
+                    }
+                }
+            }
+        };
+
+        if let Some(sp) = self.jit.run_func(&mut self.stack, self.bp, sp, &exec_info) {
+            return Some(sp);
+        }
+
+        None
     }
 
     fn run_new_array(&mut self) {
@@ -1087,6 +1051,27 @@ impl VM {
         self.stack[self.bp + frame.sp] = object;
         frame.sp += 1;
     }
+}
+
+fn count_params(descriptor: &str) -> usize {
+    let mut count = 0usize;
+    let mut i = 1;
+    while i < descriptor.len() {
+        if descriptor.chars().nth(i).unwrap() == 'L' {
+            while descriptor.chars().nth(i).unwrap() != ';' {
+                i += 1
+            }
+        }
+        if descriptor.chars().nth(i).unwrap() == ')' {
+            break;
+        }
+        if descriptor.chars().nth(i).unwrap() == 'J' || descriptor.chars().nth(i).unwrap() == 'D' {
+            // count += 1;
+        }
+        count += 1;
+        i += 1;
+    }
+    count
 }
 
 macro_rules! expect {
