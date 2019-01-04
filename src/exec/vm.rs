@@ -7,10 +7,11 @@ use super::super::gc::{gc, gc::GcType};
 use super::cfg::CFGMaker;
 use super::frame::{AType, Array, Frame, Variable};
 use super::objectheap::ObjectHeap;
-use super::{jit, jit::JIT};
+use super::{jit, jit::VariableType, jit::JIT};
 use ansi_term::Colour;
 use rustc_hash::FxHashMap;
 
+#[macro_export]
 macro_rules! fld { ($a:path, $b:expr, $( $arg:ident ),*) => {{
     match $b {
         $a { $($arg, )* .. } => ($(*$arg as usize),*),
@@ -46,7 +47,7 @@ impl VM {
                 stack
             },
             bp: 0,
-            jit: unsafe { JIT::new() },
+            jit: unsafe { JIT::new(objectheap) },
         }
     }
 }
@@ -93,7 +94,7 @@ impl VM {
                     continue;
                 }
 
-                let jit_func = jit_info_mgr.get_jit_func($start);
+                let jit_func = jit_info_mgr.get_jit_loop($start);
                 let exec_info = match jit_func {
                     Some(exec_info) => {
                         if exec_info.cant_compile {
@@ -104,13 +105,14 @@ impl VM {
                     }
                     none => unsafe {
                         let mut blocks = CFGMaker::new().make(&code, $start, $end);
-                        match self.jit.compile(&mut blocks) {
+                        let class = $frame.class.unwrap();
+                        match self.jit.compile_loop(class, &mut blocks) {
                             Ok(exec_info) => {
                                 *none = Some(exec_info.clone());
                                 exec_info
                             }
                             Err(_) => {
-                                *none = Some(jit::JITExecInfo {
+                                *none = Some(jit::LoopJITExecInfo {
                                     local_variables: FxHashMap::default(),
                                     func: 0,
                                     cant_compile: true,
@@ -856,22 +858,6 @@ impl VM {
             .unwrap();
         let (virtual_class, method2) = unsafe { &*class }.get_method(name, descriptor).unwrap();
 
-        let former_sp = frame.sp as usize;
-
-        self.frame_stack.push(Frame::new());
-
-        let frame = frame!();
-
-        frame.method_info = method2;
-
-        method.access_flags = frame.method_info.access_flags;
-
-        frame.class = if method.access_flags & 0x0020/*=ACC_SUPER*/> 0 {
-            Some(unsafe { &*virtual_class }.get_super_class().unwrap())
-        } else {
-            Some(virtual_class)
-        };
-
         let params_num = {
             // TODO: long/double takes 2 stack position
             let mut count = 0usize;
@@ -901,6 +887,96 @@ impl VM {
             }
         };
 
+        let jit_info_mgr = unsafe { &mut *frame.class.unwrap() }
+            .get_jit_info_mgr(method.name_index as usize, method.descriptor_index as usize);
+
+        if jit_info_mgr.inc_count_of_func_exec() && !(method2.access_flags & 0x0100 > 0) {
+            let jit_func = jit_info_mgr.get_jit_func();
+            let exec_info = if let Some(ref mut exec_info) = jit_func {
+                if exec_info.cant_compile {
+                    None
+                } else {
+                    if exec_info.func == 0 {
+                        let code = match method2.get_code_attribute() {
+                            Some(Attribute::Code { code, .. }) => code,
+                            _ => panic!(),
+                        };
+                        let mut blocks = CFGMaker::new().make(&code, 0, code.len());
+                        let mut arg_types = vec![];
+                        for i in self.bp + frame.sp - params_num..self.bp + frame.sp {
+                            match self.stack[i] {
+                                Variable::Char(_) | Variable::Short(_) | Variable::Int(_) => {
+                                    arg_types.push(VariableType::Int)
+                                }
+                                // TODO
+                                _ => {
+                                    exec_info.cant_compile = true;
+                                }
+                            }
+                        }
+                        if !exec_info.cant_compile {
+                            match unsafe {
+                                self.jit.compile_func(
+                                    (method.name_index as usize, method.descriptor_index as usize),
+                                    class,
+                                    &mut blocks,
+                                    &arg_types,
+                                    &exec_info.ret_ty.clone(),
+                                )
+                            } {
+                                Ok(exec_info2) => {
+                                    *exec_info = exec_info2.clone();
+                                    Some(exec_info2.clone())
+                                }
+                                Err(_) => {
+                                    *exec_info = jit::FuncJITExecInfo {
+                                        args_ty: vec![],
+                                        func: 0,
+                                        cant_compile: true,
+                                        ret_ty: None,
+                                    };
+                                    None
+                                }
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        Some(exec_info.clone())
+                    }
+                }
+            } else {
+                unreachable!();
+            };
+            if let Some(exec_info) = exec_info {
+                unsafe {
+                    if let Some(sp) =
+                        self.jit
+                            .run_func(&mut self.stack, self.bp, frame.sp, &exec_info)
+                    {
+                        frame.sp = sp;
+                        return;
+                    }
+                }
+            }
+        }
+
+        let former_sp = frame.sp as usize;
+
+        self.frame_stack.push(Frame::new());
+
+        let frame = frame!();
+
+        frame.method_info = method2;
+
+        method.access_flags = frame.method_info.access_flags;
+
+        frame.class = if method.access_flags & 0x0020/*=ACC_SUPER*/> 0 {
+            Some(unsafe { &*virtual_class }.get_super_class().unwrap())
+        } else {
+            Some(virtual_class)
+        };
+
         let mut sp_start = params_num;
         if frame.method_info.access_flags & 0x0100 > 0 {
             // method_info.access_flags & ACC_NATIVE => do not add max_locals
@@ -924,9 +1000,20 @@ impl VM {
 
         let mut frame = frame!();
         frame.sp -= params_num;
+
         if !descriptor.ends_with(")V") {
             // Returns a value
             frame.sp += 1;
+            match self.stack[self.bp + frame.sp - 1] {
+                Variable::Char(_) | Variable::Short(_) | Variable::Int(_) => {
+                    jit_info_mgr.register_jit_func_ret_ty(Some(VariableType::Int))
+                }
+                // TODO
+                _ => jit_info_mgr.register_jit_func_ret_ty(Some(VariableType::Int)),
+            }
+        } else {
+            // Void
+            jit_info_mgr.register_jit_func_ret_ty(None)
         }
     }
 

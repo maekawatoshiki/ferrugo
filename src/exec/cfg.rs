@@ -58,7 +58,7 @@ impl CFGMaker {
             let cur_code = code[pc];
             match cur_code {
                 // TODO: Add instructions
-                Inst::if_icmpne | Inst::if_icmpge | Inst::if_icmpgt | Inst::ifne => {
+                Inst::if_icmpne | Inst::if_icmpge | Inst::if_icmpgt | Inst::ifne | Inst::ifeq => {
                     let branch = ((code[pc + 1] as i16) << 8) + code[pc + 2] as i16;
                     let dst = (pc as isize + branch as isize) as usize;
                     map.insert(

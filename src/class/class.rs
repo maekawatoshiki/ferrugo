@@ -1,5 +1,5 @@
 use super::super::exec::frame::Variable;
-use super::super::exec::jit::JITExecInfo;
+use super::super::exec::jit::{FuncJITExecInfo, LoopJITExecInfo, VariableType};
 use super::super::gc::gc::GcType;
 use super::classfile::read::ClassFileReader;
 use super::classfile::{classfile::ClassFile, field::FieldInfo, method::MethodInfo};
@@ -8,8 +8,8 @@ use rustc_hash::FxHashMap;
 
 #[derive(Debug, Clone)]
 pub struct JITInfoManager {
-    loop_count: FxHashMap<usize, (usize, usize, Option<JITExecInfo>)>, // loop (start, (end, count, exec_info)
-                                                                       // whole_method: Option<LLVMValueRef>,
+    loop_count: FxHashMap<usize, (usize, usize, Option<LoopJITExecInfo>)>, // loop (start, (end, count, exec_info)
+    whole_method: (usize, Option<FuncJITExecInfo>),                        // count, function addr
 }
 
 #[derive(Debug, Clone)]
@@ -169,11 +169,21 @@ impl JITInfoManager {
     pub fn new() -> Self {
         JITInfoManager {
             loop_count: FxHashMap::default(),
+            whole_method: (0, None),
         }
     }
 
     pub fn inc_count_of_loop_exec(&mut self, start: usize, end: usize) -> bool {
         let (_, count, _) = self.loop_count.entry(start).or_insert((end, 1, None));
+        let do_compile = *count > 5; // TODO: No magic number
+        if !do_compile {
+            *count += 1;
+        }
+        do_compile
+    }
+
+    pub fn inc_count_of_func_exec(&mut self) -> bool {
+        let (count, _) = &mut self.whole_method;
         let do_compile = *count > 3; // TODO: No magic number
         if !do_compile {
             *count += 1;
@@ -181,7 +191,27 @@ impl JITInfoManager {
         do_compile
     }
 
-    pub fn get_jit_func(&mut self, start: usize) -> &mut Option<JITExecInfo> {
+    pub fn get_jit_loop(&mut self, start: usize) -> &mut Option<LoopJITExecInfo> {
         &mut (*self.loop_count.get_mut(&start).unwrap()).2
+    }
+
+    pub fn get_jit_func(&mut self) -> &mut Option<FuncJITExecInfo> {
+        &mut self.whole_method.1
+    }
+
+    pub fn register_jit_func_ret_ty(&mut self, ret_ty: Option<VariableType>) {
+        match &mut self.whole_method.1 {
+            Some(ref mut exec_info) => {
+                exec_info.ret_ty = ret_ty;
+            }
+            none => {
+                *none = Some(FuncJITExecInfo {
+                    args_ty: vec![],
+                    ret_ty: ret_ty,
+                    cant_compile: false,
+                    func: 0,
+                });
+            }
+        }
     }
 }

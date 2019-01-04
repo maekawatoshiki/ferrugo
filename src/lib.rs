@@ -4,11 +4,12 @@
 
 #[macro_use]
 pub mod macros;
-pub mod class;
+#[macro_use]
 pub mod exec;
+pub mod class;
 pub mod gc;
 
 extern crate libc;
 extern crate llvm_sys as llvm;
-extern crate rustc_hash;
 extern crate rand;
+extern crate rustc_hash;

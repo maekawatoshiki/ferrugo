@@ -1,6 +1,11 @@
+use super::super::class::class::Class;
+use super::super::class::classfile::constant::Constant;
+use super::super::class::classfile::method::MethodInfo;
+use super::super::gc::gc::GcType;
 use super::cfg::{Block, BrKind};
 use super::frame::Variable;
-use super::vm::Inst;
+use super::objectheap::ObjectHeap;
+use super::vm::{load_class, Inst};
 use libc;
 use llvm;
 use llvm::core::*;
@@ -37,10 +42,18 @@ impl CastIntoLLVMType for VariableType {
 }
 
 #[derive(Debug, Clone)]
-pub struct JITExecInfo {
+pub struct LoopJITExecInfo {
     pub local_variables: FxHashMap<usize, VariableType>,
     pub func: u64,
     pub cant_compile: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct FuncJITExecInfo {
+    pub func: u64,
+    pub cant_compile: bool,
+    pub args_ty: Vec<VariableType>,
+    pub ret_ty: Option<VariableType>,
 }
 
 #[derive(Debug, Clone)]
@@ -62,13 +75,17 @@ pub struct JIT {
     builder: LLVMBuilderRef,
     pass_mgr: LLVMPassManagerRef,
     cur_func: Option<LLVMValueRef>,
+    cur_class: Option<GcType<Class>>,
+    objectheap: GcType<ObjectHeap>,
+    cur_func_indices: Option<(usize, usize)>,
     env: FxHashMap<usize, LLVMValueRef>,
     bblocks: FxHashMap<usize, BasicBlockInfo>,
     phi_stack: FxHashMap<usize, Vec<PhiStack>>, // destination,
+    raw_func_addr_to_llvm_val: FxHashMap<u64, LLVMValueRef>,
 }
 
 impl JIT {
-    pub unsafe fn new() -> Self {
+    pub unsafe fn new(objectheap: GcType<ObjectHeap>) -> Self {
         llvm::target::LLVM_InitializeNativeTarget();
         llvm::target::LLVM_InitializeNativeAsmPrinter();
         llvm::target::LLVM_InitializeNativeAsmParser();
@@ -94,19 +111,71 @@ impl JIT {
             builder,
             pass_mgr,
             cur_func: None,
+            cur_class: None,
+            objectheap: objectheap,
+            cur_func_indices: None,
             env: FxHashMap::default(),
             bblocks: FxHashMap::default(),
             phi_stack: FxHashMap::default(),
+            raw_func_addr_to_llvm_val: FxHashMap::default(),
         }
     }
 }
 
 impl JIT {
+    pub unsafe fn run_func(
+        &self,
+        stack: &mut Vec<Variable>,
+        bp: usize,
+        mut sp: usize,
+        exec_info: &FuncJITExecInfo,
+    ) -> Option<usize> {
+        let mut raw_local_vars = vec![];
+
+        for i in bp + sp - exec_info.args_ty.len()..bp + sp {
+            raw_local_vars.push(match stack[i] {
+                Variable::Int(i) => i,
+                _ => return None,
+            });
+        }
+
+        let ret = match exec_info.args_ty.len() {
+            0 => transmute::<u64, fn() -> u64>(exec_info.func)(),
+            1 => transmute::<u64, fn(i32) -> u64>(exec_info.func)(raw_local_vars[0]),
+            2 => transmute::<u64, fn(i32, i32) -> u64>(exec_info.func)(
+                raw_local_vars[0],
+                raw_local_vars[1],
+            ),
+            3 => transmute::<u64, fn(i32, i32, i32) -> u64>(exec_info.func)(
+                raw_local_vars[0],
+                raw_local_vars[1],
+                raw_local_vars[2],
+            ),
+            4 => transmute::<u64, fn(i32, i32, i32, i32) -> u64>(exec_info.func)(
+                raw_local_vars[0],
+                raw_local_vars[1],
+                raw_local_vars[2],
+                raw_local_vars[3],
+            ),
+            _ => unimplemented!(),
+        };
+
+        sp -= exec_info.args_ty.len();
+        if let Some(ret_ty) = &exec_info.ret_ty {
+            stack[bp + sp] = match ret_ty {
+                VariableType::Int => Variable::Int(ret as i32),
+            };
+            sp += 1;
+        }
+
+        Some(sp)
+    }
+
     pub unsafe fn run_loop(
         &self,
         stack: &mut Vec<Variable>,
         bp: usize,
-        exec_info: &JITExecInfo,
+        exec_info: &LoopJITExecInfo,
     ) -> Option<usize> {
         let mut raw_local_vars = vec![];
 
@@ -133,7 +202,155 @@ impl JIT {
 }
 
 impl JIT {
-    pub unsafe fn compile(&mut self, blocks: &mut Vec<Block>) -> CResult<JITExecInfo> {
+    pub unsafe fn compile_func(
+        &mut self,
+        (name_index, descriptor_index): (usize, usize),
+        class: GcType<Class>,
+        blocks: &mut Vec<Block>,
+        arg_types: &Vec<VariableType>,
+        ret_ty: &Option<VariableType>,
+    ) -> CResult<FuncJITExecInfo> {
+        self.cur_class = Some(class);
+        self.cur_func_indices = Some((name_index, descriptor_index));
+
+        let func_ret_ty = match ret_ty {
+            Some(ty) => ty.to_llvmty(self.context),
+            None => LLVMVoidTypeInContext(self.context),
+        };
+
+        let func_ty = LLVMFunctionType(
+            func_ret_ty,
+            arg_types
+                .iter()
+                .map(|ty| ty.to_llvmty(self.context))
+                .collect::<Vec<_>>()
+                .as_mut_ptr(),
+            arg_types.len() as u32,
+            0,
+        );
+
+        let func_name = format!("ferrugo-jit-func-{}", random::<u32>());
+
+        when_debug!(LLVMDumpModule(self.module));
+        let func = LLVMAddFunction(
+            self.module,
+            CString::new(func_name.as_str()).unwrap().as_ptr(),
+            func_ty,
+        );
+
+        self.cur_func = Some(func);
+
+        let bb_entry = LLVMAppendBasicBlockInContext(
+            self.context,
+            func,
+            CString::new("entry").unwrap().as_ptr(),
+        );
+
+        LLVMPositionBuilderAtEnd(self.builder, bb_entry);
+
+        self.bblocks.insert(0, BasicBlockInfo::Positioned(bb_entry));
+
+        let env = FxHashMap::default();
+        self.env = env;
+
+        for (i, ty) in arg_types.iter().enumerate() {
+            LLVMBuildStore(
+                self.builder,
+                LLVMGetParam(func, i as u32),
+                self.declare_local_var(i, &ty),
+            );
+        }
+
+        assert!(blocks.len() > 0);
+
+        for block in &*blocks {
+            if block.start > 0 {
+                self.bblocks.insert(
+                    block.start,
+                    BasicBlockInfo::Unpositioned(LLVMAppendBasicBlock(
+                        func,
+                        CString::new("").unwrap().as_ptr(),
+                    )),
+                );
+            }
+        }
+        let mut compiling_error = Ok(0);
+
+        for i in 0..blocks.len() {
+            if let Err(e) = self.compile_block(blocks, i, vec![], false) {
+                compiling_error = Err(e);
+                break;
+            }
+        }
+
+        let last_block = blocks.last().unwrap();
+        let bb_last = (*self.bblocks.get(&last_block.start).unwrap()).retrieve();
+        LLVMPositionBuilderAtEnd(self.builder, bb_last);
+        if cur_bb_has_no_terminator(self.builder) {
+            LLVMBuildRet(self.builder, LLVMConstNull(func_ret_ty));
+        }
+
+        let mut iter_bb = LLVMGetFirstBasicBlock(func);
+        while iter_bb != ptr::null_mut() {
+            if LLVMIsATerminatorInst(LLVMGetLastInstruction(iter_bb)) == ptr::null_mut() {
+                let terminator_builder = LLVMCreateBuilderInContext(self.context);
+                LLVMPositionBuilderAtEnd(terminator_builder, iter_bb);
+                LLVMBuildRet(terminator_builder, LLVMConstNull(func_ret_ty));
+            }
+            iter_bb = LLVMGetNextBasicBlock(iter_bb);
+        }
+
+        self.env.clear();
+        self.bblocks.clear();
+        self.phi_stack.clear();
+
+        when_debug!(LLVMDumpModule(self.module));
+
+        llvm::analysis::LLVMVerifyFunction(
+            func,
+            llvm::analysis::LLVMVerifierFailureAction::LLVMAbortProcessAction,
+        );
+
+        if let Err(e) = compiling_error {
+            return Err(e);
+        }
+
+        LLVMRunPassManager(self.pass_mgr, self.module);
+
+        // TODO: Is this REALLY right way???
+        let mut ee = 0 as llvm::execution_engine::LLVMExecutionEngineRef;
+        let mut error = 0 as *mut i8;
+        if llvm::execution_engine::LLVMCreateExecutionEngineForModule(
+            &mut ee,
+            self.module,
+            &mut error,
+        ) != 0
+        {
+            panic!("llvm error: failed to initialize execute engine")
+        }
+
+        let func_raw = llvm::execution_engine::LLVMGetFunctionAddress(
+            ee,
+            CString::new(func_name.as_str()).unwrap().as_ptr(),
+        );
+
+        self.raw_func_addr_to_llvm_val.insert(func_raw, func);
+
+        Ok(FuncJITExecInfo {
+            func: func_raw,
+            cant_compile: false,
+            args_ty: arg_types.clone(),
+            ret_ty: ret_ty.clone(),
+        })
+    }
+
+    pub unsafe fn compile_loop(
+        &mut self,
+        class: GcType<Class>,
+        blocks: &mut Vec<Block>,
+    ) -> CResult<LoopJITExecInfo> {
+        self.cur_class = Some(class);
+
         let local_vars = self.count_local_variables(blocks);
 
         let func_ret_ty = LLVMInt32TypeInContext(self.context);
@@ -225,12 +442,19 @@ impl JIT {
             self.get_basic_block(blocks[0].start).retrieve(),
         );
 
+        let mut compiling_error = Ok(0);
         for i in 0..blocks.len() {
-            self.compile_block(blocks, i, vec![])?;
+            if let Err(e) = self.compile_block(blocks, i, vec![], true) {
+                compiling_error = Err(e);
+                break;
+            }
         }
 
         let last_block = blocks.last().unwrap();
         let bb_last = (*self.bblocks.get(&last_block.start).unwrap()).retrieve();
+        if cur_bb_has_no_terminator(self.builder) {
+            LLVMBuildBr(self.builder, bb_last);
+        }
         LLVMPositionBuilderAtEnd(self.builder, bb_last);
         if cur_bb_has_no_terminator(self.builder) {
             LLVMBuildRet(
@@ -245,6 +469,9 @@ impl JIT {
 
         for (pos, bb) in &self.bblocks {
             if let BasicBlockInfo::Unpositioned(bb) = *bb {
+                if cur_bb_has_no_terminator(self.builder) {
+                    LLVMBuildBr(self.builder, bb);
+                }
                 LLVMPositionBuilderAtEnd(self.builder, bb);
                 if cur_bb_has_no_terminator(self.builder) {
                     LLVMBuildRet(
@@ -265,6 +492,10 @@ impl JIT {
             llvm::analysis::LLVMVerifierFailureAction::LLVMAbortProcessAction,
         );
 
+        if let Err(e) = compiling_error {
+            return Err(e);
+        }
+
         LLVMRunPassManager(self.pass_mgr, self.module);
 
         // TODO: Is this REALLY right way???
@@ -284,7 +515,9 @@ impl JIT {
             CString::new(func_name.as_str()).unwrap().as_ptr(),
         );
 
-        Ok(JITExecInfo {
+        self.raw_func_addr_to_llvm_val.insert(func_raw, func);
+
+        Ok(LoopJITExecInfo {
             local_variables: local_vars,
             func: func_raw,
             cant_compile: false,
@@ -338,6 +571,7 @@ impl JIT {
         blocks: &mut Vec<Block>,
         idx: usize,
         init_stack: Vec<LLVMValueRef>,
+        loop_compile: bool,
     ) -> CResult<usize> {
         #[rustfmt::skip]
         macro_rules! block { () => {{ &mut blocks[idx] }}; };
@@ -352,7 +586,7 @@ impl JIT {
         LLVMPositionBuilderAtEnd(self.builder, bb.set_positioned().retrieve());
 
         let phi_stack = self.build_phi_stack(block!().start, init_stack);
-        let stack = self.compile_bytecode(block!(), phi_stack)?;
+        let stack = self.compile_bytecode(block!(), phi_stack, loop_compile)?;
 
         fn find(pc: usize, blocks: &Vec<Block>) -> Option<usize> {
             for (i, block) in blocks.iter().enumerate() {
@@ -368,14 +602,14 @@ impl JIT {
                 let mut d = 0;
                 for dst in destinations {
                     if let Some(i) = find(dst, blocks) {
-                        d = self.compile_block(blocks, i, stack.clone())?;
+                        d = self.compile_block(blocks, i, stack.clone(), loop_compile)?;
                     } else {
                         continue;
                     };
                     // TODO: All ``d`` must be the same
                 }
                 match find(d, blocks) {
-                    Some(i) => self.compile_block(blocks, i, vec![]),
+                    Some(i) => self.compile_block(blocks, i, vec![], loop_compile),
                     None => Ok(0),
                 }
             }
@@ -412,6 +646,7 @@ impl JIT {
         &mut self,
         block: &Block,
         mut stack: Vec<LLVMValueRef>,
+        loop_compile: bool,
     ) -> CResult<Vec<LLVMValueRef>> {
         let code = &block.code;
         let mut pc = 0;
@@ -436,19 +671,19 @@ impl JIT {
                     LLVMBuildStore(
                         self.builder,
                         val,
-                        self.declare_local_var(name, VariableType::Int),
+                        self.declare_local_var(name, &VariableType::Int),
                     );
                 }
                 Inst::iload_0 | Inst::iload_1 | Inst::iload_2 | Inst::iload_3 => {
                     let name = (cur_code - Inst::iload_0) as usize;
-                    let var = self.declare_local_var(name, VariableType::Int);
+                    let var = self.declare_local_var(name, &VariableType::Int);
                     stack.push(LLVMBuildLoad(
                         self.builder,
                         var,
                         CString::new("").unwrap().as_ptr(),
                     ));
                 }
-                Inst::if_icmpne | Inst::if_icmpge => {
+                Inst::if_icmpne | Inst::if_icmpge | Inst::if_icmpgt => {
                     let val2 = stack.pop().unwrap();
                     let val1 = stack.pop().unwrap();
                     let cond_val = LLVMBuildICmp(
@@ -456,6 +691,7 @@ impl JIT {
                         match cur_code {
                             Inst::if_icmpne => llvm::LLVMIntPredicate::LLVMIntNE,
                             Inst::if_icmpge => llvm::LLVMIntPredicate::LLVMIntSGE,
+                            Inst::if_icmpgt => llvm::LLVMIntPredicate::LLVMIntSGT,
                             _ => unreachable!(),
                         },
                         val1,
@@ -468,11 +704,12 @@ impl JIT {
 
                     LLVMBuildCondBr(self.builder, cond_val, bb_then, bb_else);
                 }
-                Inst::ifne => {
+                Inst::ifne | Inst::ifeq => {
                     let val = stack.pop().unwrap();
                     let cond_val = LLVMBuildICmp(
                         self.builder,
                         match cur_code {
+                            Inst::ifeq => llvm::LLVMIntPredicate::LLVMIntEQ,
                             Inst::ifne => llvm::LLVMIntPredicate::LLVMIntNE,
                             _ => unreachable!(),
                         },
@@ -496,7 +733,7 @@ impl JIT {
                 Inst::iinc => {
                     let index = code[pc + 1] as usize;
                     let const_ = code[pc + 2];
-                    let var_ref = self.declare_local_var(index, VariableType::Int);
+                    let var_ref = self.declare_local_var(index, &VariableType::Int);
                     let var_val =
                         LLVMBuildLoad(self.builder, var_ref, CString::new("").unwrap().as_ptr());
                     let inc = LLVMBuildAdd(
@@ -515,6 +752,26 @@ impl JIT {
                         val1,
                         val2,
                         CString::new("iadd").unwrap().as_ptr(),
+                    ));
+                }
+                Inst::isub => {
+                    let val2 = stack.pop().unwrap();
+                    let val1 = stack.pop().unwrap();
+                    stack.push(LLVMBuildSub(
+                        self.builder,
+                        val1,
+                        val2,
+                        CString::new("isub").unwrap().as_ptr(),
+                    ));
+                }
+                Inst::imul => {
+                    let val2 = stack.pop().unwrap();
+                    let val1 = stack.pop().unwrap();
+                    stack.push(LLVMBuildMul(
+                        self.builder,
+                        val1,
+                        val2,
+                        CString::new("imul").unwrap().as_ptr(),
                     ));
                 }
                 Inst::irem => {
@@ -542,7 +799,108 @@ impl JIT {
                         0,
                     ));
                 }
-                Inst::return_ => {}
+                Inst::ireturn if !loop_compile => {
+                    let val = stack.pop().unwrap();
+                    LLVMBuildRet(self.builder, val);
+                }
+                Inst::return_ if !loop_compile => {
+                    LLVMBuildRetVoid(self.builder);
+                }
+                Inst::invokestatic => {
+                    let cur_class = &mut *self.cur_class.unwrap();
+                    let mref_index = ((code[pc + 1] as usize) << 8) + code[pc + 2] as usize;
+                    let (class_index, name_and_type_index) = fld!(
+                        Constant::MethodrefInfo,
+                        &cur_class.classfile.constant_pool[mref_index],
+                        class_index,
+                        name_and_type_index
+                    );
+                    let name_index = fld!(
+                        Constant::ClassInfo,
+                        &cur_class.classfile.constant_pool[class_index],
+                        name_index
+                    );
+                    let class_name = cur_class.classfile.constant_pool[name_index as usize]
+                        .get_utf8()
+                        .unwrap();
+                    let class =
+                        load_class(cur_class.classheap.unwrap(), self.objectheap, class_name);
+                    let mut method = MethodInfo::new();
+                    if let Constant::NameAndTypeInfo {
+                        name_index,
+                        descriptor_index,
+                    } = &cur_class.classfile.constant_pool[name_and_type_index]
+                    {
+                        method.name_index = *name_index;
+                        method.descriptor_index = *descriptor_index;
+                    }
+
+                    method.access_flags = 0;
+
+                    let name = cur_class.classfile.constant_pool[method.name_index as usize]
+                        .get_utf8()
+                        .unwrap();
+                    let descriptor = cur_class.classfile.constant_pool
+                        [method.descriptor_index as usize]
+                        .get_utf8()
+                        .unwrap();
+                    let (_virtual_class, _method2) =
+                        (&*class).get_method(name, descriptor).unwrap();
+                    let jit_info_mgr = (&mut *class).get_jit_info_mgr(
+                        method.name_index as usize,
+                        method.descriptor_index as usize,
+                    );
+                    let jit_func = jit_info_mgr.get_jit_func();
+                    if Some((method.name_index as usize, method.descriptor_index as usize))
+                        == self.cur_func_indices
+                    {
+                        let cur_func = self.cur_func.unwrap();
+                        let mut args = vec![];
+                        for _ in 0..LLVMCountParams(cur_func) {
+                            args.push(stack.pop().unwrap());
+                        }
+                        args.reverse();
+                        let ret = LLVMBuildCall(
+                            self.builder,
+                            cur_func,
+                            args.as_mut_slice().as_mut_ptr(),
+                            args.len() as u32,
+                            CString::new("").unwrap().as_ptr(),
+                        );
+                        if LLVMGetTypeKind(LLVMGetReturnType(LLVMTypeOf(cur_func)))
+                            != llvm::LLVMTypeKind::LLVMVoidTypeKind
+                        {
+                            stack.push(ret);
+                        }
+                    } else {
+                        if jit_func.is_none() {
+                            return Err(Error::CouldntCompile);
+                        };
+                        let exec_info = jit_func.clone().unwrap();
+                        if exec_info.cant_compile {
+                            return Err(Error::CouldntCompile);
+                        }
+                        if exec_info.func == 0 {
+                            return Err(Error::CouldntCompile);
+                        }
+                        let func = *self.raw_func_addr_to_llvm_val.get(&exec_info.func).unwrap();
+                        let mut args = vec![];
+                        for _ in 0..exec_info.args_ty.len() {
+                            args.push(stack.pop().unwrap());
+                        }
+                        args.reverse();
+                        let ret = LLVMBuildCall(
+                            self.builder,
+                            func,
+                            args.as_mut_ptr(),
+                            args.len() as u32,
+                            CString::new("").unwrap().as_ptr(),
+                        );
+                        if exec_info.ret_ty.is_some() {
+                            stack.push(ret);
+                        }
+                    }
+                }
                 e => {
                     dprintln!("***JIT: unimplemented instruction: {}***", e);
                     return Err(Error::CouldntCompile);
@@ -555,7 +913,7 @@ impl JIT {
         Ok(stack)
     }
 
-    unsafe fn declare_local_var(&mut self, name: usize, ty: VariableType) -> LLVMValueRef {
+    unsafe fn declare_local_var(&mut self, name: usize, ty: &VariableType) -> LLVMValueRef {
         if let Some(v) = self.env.get(&name) {
             return *v;
         }
