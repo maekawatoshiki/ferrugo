@@ -1,6 +1,6 @@
-pub mod read;
+pub mod attribute;
+pub mod classfile;
 pub mod constant;
 pub mod field;
-pub mod attribute;
 pub mod method;
-pub mod classfile;
+pub mod read;

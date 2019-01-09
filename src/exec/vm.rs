@@ -19,10 +19,17 @@ macro_rules! fld { ($a:path, $b:expr, $( $arg:ident ),*) => {{
     }
 }}; }
 
+#[derive(Debug, Clone)]
+pub struct RuntimeEnvironment {
+    pub classheap: GcType<ClassHeap>,
+    pub objectheap: GcType<ObjectHeap>,
+}
+
 #[derive(Debug)]
 pub struct VM {
     pub classheap: GcType<ClassHeap>,
     pub objectheap: GcType<ObjectHeap>,
+    pub runtime_env: GcType<RuntimeEnvironment>,
     pub frame_stack: Vec<Frame>,
     pub stack: Vec<Variable>,
     pub bp: usize,
@@ -31,9 +38,14 @@ pub struct VM {
 
 impl VM {
     pub fn new(classheap: GcType<ClassHeap>, objectheap: GcType<ObjectHeap>) -> Self {
+        let runtime_env = Box::into_raw(Box::new(RuntimeEnvironment {
+            objectheap,
+            classheap,
+        }));
         VM {
             classheap,
             objectheap,
+            runtime_env,
             frame_stack: {
                 let mut frame_stack = Vec::with_capacity(128);
                 frame_stack.push(Frame::new());
@@ -47,7 +59,7 @@ impl VM {
                 stack
             },
             bp: 0,
-            jit: unsafe { JIT::new(objectheap) },
+            jit: unsafe { JIT::new(runtime_env) },
         }
     }
 }
@@ -558,7 +570,8 @@ impl VM {
         match signature.as_str() {
             "java/io/PrintStream.println:(I)V" => {
                 jit::java_io_printstream_println_i_v(
-                    self.stack[self.bp].get_pointer::<u64>(),
+                    self.runtime_env,
+                    self.stack[self.bp].get_pointer::<ObjectBody>(),
                     self.stack[self.bp + 1].get_int(),
                 );
             }
@@ -566,72 +579,37 @@ impl VM {
                 println!("{}", self.stack[self.bp + 1].get_double());
             }
             "java/io/PrintStream.println:(Ljava/lang/String;)V" => {
-                let object_body =
-                    unsafe { &mut *self.stack[self.bp + 1].get_pointer::<ObjectBody>() };
-                println!("{}", unsafe {
-                    &*(object_body
-                        .variables
-                        .get("str")
-                        .unwrap()
-                        .get_pointer::<String>())
-                });
+                jit::java_io_printstream_println_string_v(
+                    self.runtime_env,
+                    self.stack[self.bp + 0].get_pointer::<ObjectBody>(),
+                    self.stack[self.bp + 1].get_pointer::<ObjectBody>(),
+                );
             }
-            // static
             "java/lang/String.valueOf:(I)Ljava/lang/String;" => {
                 let i = self.stack[self.bp + 0].get_int();
                 self.stack[self.bp + 0] =
                     objectheap.create_string_object(format!("{}", i), self.classheap);
             }
             "java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;" => {
-                let string_builder =
-                    unsafe { &mut *self.stack[self.bp + 0].get_pointer::<ObjectBody>() };
-                let append_str = unsafe {
-                    let string =
-                        &mut *self.stack[self.bp + frame.sp - 1].get_pointer::<ObjectBody>();
-                    &*(string.variables.get("str").unwrap().get_pointer::<String>())
-                };
-                let string = {
-                    unsafe {
-                        let string = &mut *string_builder
-                            .variables
-                            .entry("str".to_string())
-                            .or_insert(
-                                objectheap.create_string_object("".to_string(), self.classheap),
-                            )
-                            .get_pointer::<ObjectBody>();
-                        &mut *(string
-                            .variables
-                            .get_mut("str")
-                            .unwrap()
-                            .get_pointer::<String>())
-                    }
-                };
-                string.push_str(append_str);
+                jit::java_lang_stringbuilder_append_string_stringbuilder(
+                    self.runtime_env,
+                    self.stack[self.bp + 0].get_pointer::<ObjectBody>(),
+                    self.stack[self.bp + frame.sp - 1].get_pointer::<ObjectBody>(),
+                );
             }
             "java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;" => {
-                let string_builder =
-                    unsafe { &mut *self.stack[self.bp + 0].get_pointer::<ObjectBody>() };
-                let append_int = self.stack[self.bp + frame.sp - 1].get_int();
-                let string = {
-                    unsafe {
-                        let string = &mut *string_builder
-                            .variables
-                            .entry("str".to_string())
-                            .or_insert(
-                                objectheap.create_string_object("".to_string(), self.classheap),
-                            )
-                            .get_pointer::<ObjectBody>();
-                        &mut *(string.variables.get_mut("str").unwrap().get_pointer()
-                            as GcType<String>)
-                    }
-                };
-                string.push_str(format!("{}", append_int).as_str());
+                jit::java_lang_stringbuilder_append_i_stringbuilder(
+                    self.runtime_env,
+                    self.stack[self.bp + 0].get_pointer::<ObjectBody>(),
+                    self.stack[self.bp + frame.sp - 1].get_int(),
+                );
             }
             "java/lang/StringBuilder.toString:()Ljava/lang/String;" => {
-                let string_builder =
-                    unsafe { &mut *self.stack[self.bp + 0].get_pointer::<ObjectBody>() };
-                let s = string_builder.variables.get("str").unwrap().clone();
-                self.stack[self.bp + 0] = s;
+                let s = jit::java_lang_stringbuilder_tostring_string(
+                    self.runtime_env,
+                    self.stack[self.bp + 0].get_pointer::<ObjectBody>(),
+                );
+                self.stack[self.bp + 0] = Variable::Pointer(s as *mut u64);
             }
             e => panic!("{:?}", e),
         }

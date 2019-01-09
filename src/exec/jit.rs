@@ -5,8 +5,7 @@ use super::{
     },
     cfg::{Block, BrKind},
     frame::{ObjectBody, Variable},
-    objectheap::ObjectHeap,
-    vm::{load_class, Inst},
+    vm::{load_class, Inst, RuntimeEnvironment},
 };
 use libc;
 use llvm;
@@ -100,16 +99,16 @@ pub struct JIT {
     pass_mgr: LLVMPassManagerRef,
     cur_func: Option<LLVMValueRef>,
     cur_class: Option<GcType<Class>>,
-    objectheap: GcType<ObjectHeap>,
     cur_func_indices: Option<(usize, usize)>,
     env: FxHashMap<usize, LLVMValueRef>,
     bblocks: FxHashMap<usize, BasicBlockInfo>,
     phi_stack: FxHashMap<usize, Vec<PhiStack>>, // destination,
     native_functions: FxHashMap<String, LLVMValueRef>,
+    runtime_env: GcType<RuntimeEnvironment>,
 }
 
 impl JIT {
-    pub unsafe fn new(objectheap: GcType<ObjectHeap>) -> Self {
+    pub unsafe fn new(runtime_env: GcType<RuntimeEnvironment>) -> Self {
         llvm::target::LLVM_InitializeNativeTarget();
         llvm::target::LLVM_InitializeNativeAsmPrinter();
         llvm::target::LLVM_InitializeNativeAsmParser();
@@ -136,21 +135,22 @@ impl JIT {
             pass_mgr,
             cur_func: None,
             cur_class: None,
-            objectheap: objectheap,
             cur_func_indices: None,
             env: FxHashMap::default(),
             bblocks: FxHashMap::default(),
             phi_stack: FxHashMap::default(),
+            runtime_env,
             native_functions: {
                 let mut map = FxHashMap::default();
                 let func_ty = LLVMFunctionType(
                     VariableType::Void.to_llvmty(context),
                     vec![
                         VariableType::Pointer.to_llvmty(context),
+                        VariableType::Pointer.to_llvmty(context),
                         VariableType::Int.to_llvmty(context),
                     ]
                     .as_mut_ptr(),
-                    2,
+                    3,
                     0,
                 );
                 let func = LLVMAddFunction(
@@ -166,9 +166,10 @@ impl JIT {
                     vec![
                         VariableType::Pointer.to_llvmty(context),
                         VariableType::Pointer.to_llvmty(context),
+                        VariableType::Pointer.to_llvmty(context),
                     ]
                     .as_mut_ptr(),
-                    2,
+                    3,
                     0,
                 );
                 let func = LLVMAddFunction(
@@ -182,6 +183,61 @@ impl JIT {
                     "java/io/PrintStream.println:(Ljava/lang/String;)V".to_string(),
                     func,
                 );
+                let name = "java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;";
+                let func_ty = LLVMFunctionType(
+                    VariableType::Pointer.to_llvmty(context),
+                    vec![
+                        VariableType::Pointer.to_llvmty(context),
+                        VariableType::Pointer.to_llvmty(context),
+                        VariableType::Int.to_llvmty(context),
+                    ]
+                    .as_mut_ptr(),
+                    3,
+                    0,
+                );
+                let func = LLVMAddFunction(module, CString::new(name).unwrap().as_ptr(), func_ty);
+                map.insert(name.to_string(), func);
+                let name =
+                    "java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;";
+                let func_ty = LLVMFunctionType(
+                    VariableType::Pointer.to_llvmty(context),
+                    vec![
+                        VariableType::Pointer.to_llvmty(context),
+                        VariableType::Pointer.to_llvmty(context),
+                        VariableType::Pointer.to_llvmty(context),
+                    ]
+                    .as_mut_ptr(),
+                    3,
+                    0,
+                );
+                let func = LLVMAddFunction(module, CString::new(name).unwrap().as_ptr(), func_ty);
+                map.insert(name.to_string(), func);
+                let name = "java/lang/StringBuilder.toString:()Ljava/lang/String;";
+                let func_ty = LLVMFunctionType(
+                    VariableType::Pointer.to_llvmty(context),
+                    vec![
+                        VariableType::Pointer.to_llvmty(context),
+                        VariableType::Pointer.to_llvmty(context),
+                    ]
+                    .as_mut_ptr(),
+                    2,
+                    0,
+                );
+                let func = LLVMAddFunction(module, CString::new(name).unwrap().as_ptr(), func_ty);
+                map.insert(name.to_string(), func);
+                let name = "ferrugo_internal_new";
+                let func_ty = LLVMFunctionType(
+                    VariableType::Pointer.to_llvmty(context),
+                    vec![
+                        VariableType::Pointer.to_llvmty(context),
+                        VariableType::Pointer.to_llvmty(context),
+                    ]
+                    .as_mut_ptr(),
+                    2,
+                    0,
+                );
+                let func = LLVMAddFunction(module, CString::new(name).unwrap().as_ptr(), func_ty);
+                map.insert(name.to_string(), func);
                 map
             },
         }
@@ -302,6 +358,22 @@ impl JIT {
             (
                 "java/io/PrintStream.println:(Ljava/lang/String;)V",
                 java_io_printstream_println_string_v as *mut libc::c_void,
+            ),
+            (
+                "java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;",
+                java_lang_stringbuilder_append_string_stringbuilder as *mut libc::c_void,
+            ),
+            (
+                "java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;",
+                java_lang_stringbuilder_append_i_stringbuilder as *mut libc::c_void,
+            ),
+            (
+                "java/lang/StringBuilder.toString:()Ljava/lang/String;",
+                java_lang_stringbuilder_tostring_string as *mut libc::c_void,
+            ),
+            (
+                "ferrugo_internal_new",
+                ferrugo_internal_new as *mut libc::c_void,
             ),
         ] {
             llvm::execution_engine::LLVMAddGlobalMapping(
@@ -923,7 +995,7 @@ impl JIT {
                             // so should not create a new string object.
                             // "aaa" == "aaa" // => true
                             stack.push(
-                                (&mut *self.objectheap)
+                                (&mut *(&mut *self.runtime_env).objectheap)
                                     .create_string_object(string, cur_class.classheap.unwrap())
                                     .to_llvm_val(self.context),
                             )
@@ -956,8 +1028,11 @@ impl JIT {
                     let class_name = cur_class.classfile.constant_pool[name_index as usize]
                         .get_utf8()
                         .unwrap();
-                    let class =
-                        load_class(cur_class.classheap.unwrap(), self.objectheap, class_name);
+                    let class = load_class(
+                        cur_class.classheap.unwrap(),
+                        (&mut *self.runtime_env).objectheap,
+                        class_name,
+                    );
                     let name_index = fld!(
                         Constant::NameAndTypeInfo,
                         &cur_class.classfile.constant_pool[name_and_type_index],
@@ -969,6 +1044,38 @@ impl JIT {
                     let object = (&*class).get_static_variable(name.as_str()).unwrap();
                     stack.push(object.to_llvm_val(self.context));
                 }
+                Inst::new => {
+                    let cur_class = &mut *self.cur_class.unwrap();
+                    let class_index = ((code[pc + 1] as usize) << 8) + code[pc + 2] as usize;
+                    let name_index = fld!(
+                        Constant::ClassInfo,
+                        &cur_class.classfile.constant_pool[class_index],
+                        name_index
+                    );
+                    let class_name = cur_class.classfile.constant_pool[name_index as usize]
+                        .get_utf8()
+                        .unwrap();
+                    let classheap = (&mut *self.runtime_env).classheap;
+                    let objectheap = (&mut *self.runtime_env).objectheap;
+                    let class = load_class(classheap, objectheap, class_name);
+                    let ret = LLVMBuildCall(
+                        self.builder,
+                        *self.native_functions.get("ferrugo_internal_new").unwrap(),
+                        vec![
+                            llvm_const_ptr(self.context, self.runtime_env as *mut u64),
+                            llvm_const_ptr(self.context, class as *mut u64),
+                        ]
+                        .as_mut_ptr(),
+                        2,
+                        CString::new("").unwrap().as_ptr(),
+                    );
+                    stack.push(ret);
+                }
+                Inst::dup => {
+                    let val = stack.last().clone().unwrap();
+                    stack.push(*val);
+                }
+                Inst::invokespecial => {}
                 Inst::invokestatic | Inst::invokevirtual => {
                     // TODO: The following code should be a method.
                     let cur_class = &mut *self.cur_class.unwrap();
@@ -987,8 +1094,11 @@ impl JIT {
                     let class_name = cur_class.classfile.constant_pool[name_index as usize]
                         .get_utf8()
                         .unwrap();
-                    let class =
-                        load_class(cur_class.classheap.unwrap(), self.objectheap, class_name);
+                    let class = load_class(
+                        cur_class.classheap.unwrap(),
+                        (&mut *self.runtime_env).objectheap,
+                        class_name,
+                    );
                     let (name_index, descriptor_index) = fld!(
                         Constant::NameAndTypeInfo,
                         &cur_class.classfile.constant_pool[name_and_type_index],
@@ -1006,6 +1116,7 @@ impl JIT {
 
                     let jit_info_mgr = (&mut *class).get_jit_info_mgr(name_index, descriptor_index);
                     let jit_func = jit_info_mgr.get_jit_func();
+                    let mut renv_need = false;
                     let llvm_func = if Some((
                         exec_method.name_index as usize,
                         exec_method.descriptor_index as usize,
@@ -1016,6 +1127,7 @@ impl JIT {
                         let signature = format!("{}.{}:{}", class_name, name, descriptor);
                         self.native_functions.get(signature.as_str())
                     } {
+                        renv_need = true;
                         *native_func
                     } else {
                         if jit_func.is_none() {
@@ -1031,9 +1143,12 @@ impl JIT {
                     };
 
                     let mut args = vec![];
-                    let args_count = LLVMCountParams(llvm_func);
+                    let args_count = LLVMCountParams(llvm_func) - if renv_need { 1 } else { 0 };
                     for _ in 0..args_count {
                         args.push(stack.pop().unwrap());
+                    }
+                    if renv_need {
+                        args.push(llvm_const_ptr(self.context, self.runtime_env as *mut u64));
                     }
                     args.reverse();
 
@@ -1200,13 +1315,27 @@ unsafe fn llvm_const_uint64(ctx: LLVMContextRef, n: u64) -> LLVMValueRef {
     LLVMConstInt(LLVMInt64TypeInContext(ctx), n, 0)
 }
 
+unsafe fn llvm_const_ptr(ctx: LLVMContextRef, p: *mut u64) -> LLVMValueRef {
+    let ptr_as_int = LLVMConstInt(LLVMInt64TypeInContext(ctx), p as u64, 0);
+    let const_ptr = LLVMConstIntToPtr(ptr_as_int, VariableType::Pointer.to_llvmty(ctx));
+    const_ptr
+}
+
 #[no_mangle]
-pub extern "C" fn java_io_printstream_println_i_v(_ptr: *mut u64, i: i32) {
+pub extern "C" fn java_io_printstream_println_i_v(
+    _renv: *mut RuntimeEnvironment,
+    _obj: *mut ObjectBody,
+    i: i32,
+) {
     println!("{}", i);
 }
 
 #[no_mangle]
-pub extern "C" fn java_io_printstream_println_string_v(_ptr: *mut u64, s: *mut ObjectBody) {
+pub extern "C" fn java_io_printstream_println_string_v(
+    _renv: *mut RuntimeEnvironment,
+    _obj: *mut ObjectBody,
+    s: *mut ObjectBody,
+) {
     let object_body = unsafe { &mut *s };
     println!("{}", unsafe {
         &*(object_body
@@ -1215,4 +1344,72 @@ pub extern "C" fn java_io_printstream_println_string_v(_ptr: *mut u64, s: *mut O
             .unwrap()
             .get_pointer::<String>())
     });
+}
+
+#[no_mangle]
+pub extern "C" fn java_lang_stringbuilder_append_i_stringbuilder(
+    renv: *mut RuntimeEnvironment,
+    obj: *mut ObjectBody,
+    i: i32,
+) -> *mut ObjectBody {
+    let renv = unsafe { &mut *renv };
+    let string_builder = unsafe { &mut *obj };
+    let string = unsafe {
+        let string = &mut *string_builder
+            .variables
+            .entry("str".to_string())
+            .or_insert((&mut *renv.objectheap).create_string_object("".to_string(), renv.classheap))
+            .get_pointer::<ObjectBody>();
+        &mut *(string.variables.get_mut("str").unwrap().get_pointer() as GcType<String>)
+    };
+    string.push_str(format!("{}", i).as_str());
+    obj
+}
+
+#[no_mangle]
+pub extern "C" fn java_lang_stringbuilder_append_string_stringbuilder(
+    renv: *mut RuntimeEnvironment,
+    obj: *mut ObjectBody,
+    s: *mut ObjectBody,
+) -> *mut ObjectBody {
+    let renv = unsafe { &mut *renv };
+    let string_builder = unsafe { &mut *obj };
+    let append_str = unsafe {
+        let string = &mut *s;
+        &*(string.variables.get("str").unwrap().get_pointer::<String>())
+    };
+    let string = unsafe {
+        let string = &mut *string_builder
+            .variables
+            .entry("str".to_string())
+            .or_insert((&mut *renv.objectheap).create_string_object("".to_string(), renv.classheap))
+            .get_pointer::<ObjectBody>();
+        &mut *(string
+            .variables
+            .get_mut("str")
+            .unwrap()
+            .get_pointer::<String>())
+    };
+    string.push_str(append_str);
+    obj
+}
+
+#[no_mangle]
+pub extern "C" fn java_lang_stringbuilder_tostring_string(
+    _renv: *mut RuntimeEnvironment,
+    obj: *mut ObjectBody,
+) -> *mut ObjectBody {
+    let string_builder = unsafe { &mut *obj };
+    let s = string_builder.variables.get("str").unwrap().clone();
+    s.get_pointer::<ObjectBody>()
+}
+
+#[no_mangle]
+pub extern "C" fn ferrugo_internal_new(
+    renv: *mut RuntimeEnvironment,
+    class: *mut Class,
+) -> *mut ObjectBody {
+    let renv = unsafe { &mut *renv };
+    let object = unsafe { &mut *renv.objectheap }.create_object(class);
+    object.get_pointer::<ObjectBody>()
 }
