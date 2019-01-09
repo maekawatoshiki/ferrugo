@@ -27,6 +27,7 @@ pub enum Error {
 pub enum VariableType {
     Int,
     Void,
+    Pointer,
 }
 
 trait CastIntoLLVMType {
@@ -38,6 +39,7 @@ impl CastIntoLLVMType for VariableType {
         match self {
             &VariableType::Int => LLVMInt32TypeInContext(ctx),
             &VariableType::Void => LLVMVoidTypeInContext(ctx),
+            &VariableType::Pointer => LLVMPointerType(LLVMInt8TypeInContext(ctx), 0),
         }
     }
 }
@@ -61,7 +63,7 @@ impl LoopJITExecInfo {
 
 #[derive(Debug, Clone)]
 pub struct FuncJITExecInfo {
-    pub func: u64,
+    pub func: LLVMValueRef,
     pub cant_compile: bool,
     pub args_ty: Vec<VariableType>,
     pub ret_ty: Option<VariableType>,
@@ -70,7 +72,7 @@ pub struct FuncJITExecInfo {
 impl FuncJITExecInfo {
     pub fn cant_compile() -> Self {
         FuncJITExecInfo {
-            func: 0,
+            func: ptr::null_mut(),
             cant_compile: true,
             args_ty: vec![],
             ret_ty: None,
@@ -103,7 +105,7 @@ pub struct JIT {
     env: FxHashMap<usize, LLVMValueRef>,
     bblocks: FxHashMap<usize, BasicBlockInfo>,
     phi_stack: FxHashMap<usize, Vec<PhiStack>>, // destination,
-    raw_func_addr_to_llvm_val: FxHashMap<u64, LLVMValueRef>,
+    native_functions: FxHashMap<String, LLVMValueRef>,
 }
 
 impl JIT {
@@ -139,7 +141,28 @@ impl JIT {
             env: FxHashMap::default(),
             bblocks: FxHashMap::default(),
             phi_stack: FxHashMap::default(),
-            raw_func_addr_to_llvm_val: FxHashMap::default(),
+            native_functions: {
+                let mut map = FxHashMap::default();
+                let func_ty = LLVMFunctionType(
+                    LLVMVoidTypeInContext(context),
+                    vec![
+                        VariableType::Pointer.to_llvmty(context),
+                        VariableType::Int.to_llvmty(context),
+                    ]
+                    .as_mut_ptr(),
+                    2,
+                    0,
+                );
+                let func = LLVMAddFunction(
+                    module,
+                    CString::new("java/io/PrintStream.println:(I)V")
+                        .unwrap()
+                        .as_ptr(),
+                    func_ty,
+                );
+                map.insert("java/io/PrintStream.println:(I)V".to_string(), func);
+                map
+            },
         }
     }
 }
@@ -152,46 +175,64 @@ impl JIT {
         mut sp: usize,
         exec_info: &FuncJITExecInfo,
     ) -> Option<usize> {
-        let mut raw_local_vars = vec![];
+        let mut local_vars = vec![];
 
         for i in bp + sp - exec_info.args_ty.len()..bp + sp {
-            raw_local_vars.push(match stack[i] {
-                Variable::Int(i) => i,
+            local_vars.push(match stack[i] {
+                Variable::Int(i) => LLVMConstInt(LLVMInt32TypeInContext(self.context), i as u64, 1),
                 _ => return None,
             });
         }
 
-        let ret = match exec_info.args_ty.len() {
-            0 => transmute::<u64, fn() -> u64>(exec_info.func)(),
-            1 => transmute::<u64, fn(i32) -> u64>(exec_info.func)(raw_local_vars[0]),
-            2 => transmute::<u64, fn(i32, i32) -> u64>(exec_info.func)(
-                raw_local_vars[0],
-                raw_local_vars[1],
-            ),
-            3 => transmute::<u64, fn(i32, i32, i32) -> u64>(exec_info.func)(
-                raw_local_vars[0],
-                raw_local_vars[1],
-                raw_local_vars[2],
-            ),
-            4 => transmute::<u64, fn(i32, i32, i32, i32) -> u64>(exec_info.func)(
-                raw_local_vars[0],
-                raw_local_vars[1],
-                raw_local_vars[2],
-                raw_local_vars[3],
-            ),
-            _ => unimplemented!(),
-        };
-
         sp -= exec_info.args_ty.len();
 
         let ret_ty = exec_info.ret_ty.clone().unwrap();
+        let func_ret_ty = ret_ty.to_llvmty(self.context);
+        let func_ty = LLVMFunctionType(func_ret_ty, vec![].as_mut_ptr(), 0, 0);
+        let func_name = format!("ferrugo-jit-func-executer-{}", random::<u32>());
+        let func = LLVMAddFunction(
+            self.module,
+            CString::new(func_name.as_str()).unwrap().as_ptr(),
+            func_ty,
+        );
+        let bb_entry = LLVMAppendBasicBlockInContext(
+            self.context,
+            func,
+            CString::new("entry").unwrap().as_ptr(),
+        );
+        LLVMPositionBuilderAtEnd(self.builder, bb_entry);
+        let val = LLVMBuildCall(
+            self.builder,
+            exec_info.func,
+            local_vars.as_mut_ptr(),
+            local_vars.len() as u32,
+            CString::new("").unwrap().as_ptr(),
+        );
+        LLVMBuildRet(self.builder, val);
+        // when_debug!(LLVMDumpValue(func));
+        // TODO: Is this REALLY right way???
+        let mut ee = 0 as llvm::execution_engine::LLVMExecutionEngineRef;
+        let mut error = 0 as *mut i8;
+        if llvm::execution_engine::LLVMCreateExecutionEngineForModule(
+            &mut ee,
+            self.module,
+            &mut error,
+        ) != 0
+        {
+            panic!("llvm error: failed to initialize execute engine")
+        }
+
+        let ret_val = llvm::execution_engine::LLVMRunFunction(ee, func, 0, vec![].as_mut_ptr());
+        let ret_int = llvm::execution_engine::LLVMGenericValueToInt(ret_val, 0);
+
         match ret_ty {
-            VariableType::Void => {}
             VariableType::Int => {
-                stack[bp + sp] = Variable::Int(ret as i32);
+                stack[bp + sp] = Variable::Int(ret_int as i32);
                 sp += 1
             }
-        };
+            VariableType::Pointer => {}
+            VariableType::Void => {}
+        }
 
         Some(sp)
     }
@@ -352,15 +393,8 @@ impl JIT {
             panic!("llvm error: failed to initialize execute engine")
         }
 
-        let func_raw = llvm::execution_engine::LLVMGetFunctionAddress(
-            ee,
-            CString::new(func_name.as_str()).unwrap().as_ptr(),
-        );
-
-        self.raw_func_addr_to_llvm_val.insert(func_raw, func);
-
         Ok(FuncJITExecInfo {
-            func: func_raw,
+            func,
             cant_compile: false,
             args_ty: arg_types.clone(),
             ret_ty: Some(ret_ty),
@@ -534,12 +568,19 @@ impl JIT {
             panic!("llvm error: failed to initialize execute engine")
         }
 
+        llvm::execution_engine::LLVMAddGlobalMapping(
+            ee,
+            *self
+                .native_functions
+                .get("java/io/PrintStream.println:(I)V")
+                .unwrap(),
+            java_io_printstream_println_i_v as *mut libc::c_void,
+        );
+
         let func_raw = llvm::execution_engine::LLVMGetFunctionAddress(
             ee,
             CString::new(func_name.as_str()).unwrap().as_ptr(),
         );
-
-        self.raw_func_addr_to_llvm_val.insert(func_raw, func);
 
         Ok(LoopJITExecInfo {
             local_variables: local_vars,
@@ -672,6 +713,7 @@ impl JIT {
         mut stack: Vec<LLVMValueRef>,
         loop_compile: bool,
     ) -> CResult<Vec<LLVMValueRef>> {
+        let mut object_stack = vec![];
         let code = &block.code;
         let mut pc = 0;
 
@@ -864,7 +906,37 @@ impl JIT {
                 Inst::return_ if !loop_compile => {
                     LLVMBuildRetVoid(self.builder);
                 }
-                Inst::invokestatic => {
+                Inst::getstatic => {
+                    let cur_class = &mut *self.cur_class.unwrap();
+                    let mref_index = ((code[pc + 1] as usize) << 8) + code[pc + 2] as usize;
+                    let (class_index, name_and_type_index) = fld!(
+                        Constant::FieldrefInfo,
+                        &cur_class.classfile.constant_pool[mref_index],
+                        class_index,
+                        name_and_type_index
+                    );
+                    let name_index = fld!(
+                        Constant::ClassInfo,
+                        &cur_class.classfile.constant_pool[class_index],
+                        name_index
+                    );
+                    let class_name = cur_class.classfile.constant_pool[name_index as usize]
+                        .get_utf8()
+                        .unwrap();
+                    let class =
+                        load_class(cur_class.classheap.unwrap(), self.objectheap, class_name);
+                    let name_index = fld!(
+                        Constant::NameAndTypeInfo,
+                        &cur_class.classfile.constant_pool[name_and_type_index],
+                        name_index
+                    );
+                    let name = cur_class.classfile.constant_pool[name_index]
+                        .get_utf8()
+                        .unwrap();
+                    let object = (&*class).get_static_variable(name.as_str()).unwrap();
+                    object_stack.push(object);
+                }
+                Inst::invokestatic | Inst::invokevirtual => {
                     // TODO: The following code should be a method.
                     let cur_class = &mut *self.cur_class.unwrap();
                     let mref_index = ((code[pc + 1] as usize) << 8) + code[pc + 2] as usize;
@@ -899,6 +971,12 @@ impl JIT {
                     let (_virtual_class, exec_method) =
                         (&*class).get_method(name, descriptor).unwrap();
 
+                    let signature = format!("{}.{}:{}", class_name, name, descriptor);
+                    let objectref = match cur_code {
+                        Inst::invokevirtual => object_stack.pop(),
+                        _ => None,
+                    };
+
                     let jit_info_mgr = (&mut *class).get_jit_info_mgr(name_index, descriptor_index);
                     let jit_func = jit_info_mgr.get_jit_func();
                     let llvm_func = if Some((
@@ -907,6 +985,9 @@ impl JIT {
                     )) == self.cur_func_indices
                     {
                         self.cur_func.unwrap()
+                    } else if let Some(native_func) = self.native_functions.get(signature.as_str())
+                    {
+                        *native_func
                     } else {
                         if jit_func.is_none() {
                             return Err(Error::CouldntCompile);
@@ -916,17 +997,30 @@ impl JIT {
                         if exec_info.cant_compile {
                             return Err(Error::CouldntCompile);
                         }
-                        if exec_info.func == 0 {
-                            return Err(Error::CouldntCompile);
-                        }
 
-                        *self.raw_func_addr_to_llvm_val.get(&exec_info.func).unwrap()
+                        exec_info.func
                     };
 
                     let mut args = vec![];
-                    for _ in 0..LLVMCountParams(llvm_func) {
+                    let args_count =
+                        LLVMCountParams(llvm_func) - if objectref.is_some() { 1 } else { 0 };
+
+                    for _ in 0..args_count {
                         args.push(stack.pop().unwrap());
                     }
+                    if let Some(objectref) = objectref {
+                        let ptr_as_int = LLVMConstInt(
+                            LLVMInt64TypeInContext(self.context),
+                            objectref.get_pointer::<u64>() as u64,
+                            0,
+                        );
+                        let const_ptr = LLVMConstIntToPtr(
+                            ptr_as_int,
+                            VariableType::Pointer.to_llvmty(self.context),
+                        );
+                        args.push(const_ptr);
+                    }
+
                     args.reverse();
 
                     let ret = LLVMBuildCall(
@@ -1061,4 +1155,9 @@ impl BasicBlockInfo {
             _ => false,
         }
     }
+}
+
+#[no_mangle]
+pub extern "C" fn java_io_printstream_println_i_v(_ptr: *mut u64, i: i32) {
+    println!("{}", i);
 }

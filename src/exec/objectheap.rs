@@ -25,7 +25,7 @@ impl ObjectHeap {
             },
         });
 
-        Variable::Object(obj)
+        Variable::Pointer(obj as *mut u64)
     }
 
     pub fn create_string_object(
@@ -36,10 +36,12 @@ impl ObjectHeap {
         let class = load_class(classheap, self, "java/lang/String");
         let object = self.create_object(class);
 
-        unsafe { &mut *object.get_object() }.variables.insert(
-            "str".to_string(),
-            Variable::Pointer(Box::into_raw(Box::new(string)) as GcType<u64>),
-        );
+        unsafe { &mut *object.get_pointer::<ObjectBody>() }
+            .variables
+            .insert(
+                "str".to_string(),
+                Variable::Pointer(Box::into_raw(Box::new(string)) as GcType<u64>),
+            );
 
         object
     }

@@ -29,7 +29,6 @@ pub enum Variable {
     Int(i32),
     Float(f32),
     Double(f64),
-    Object(GcType<ObjectBody>),
     Pointer(GcType<u64>),
 }
 
@@ -110,13 +109,6 @@ impl Variable {
         match self {
             Variable::Pointer(ptr) => *ptr as GcType<T>,
             _ => panic!("hmm"),
-        }
-    }
-
-    pub fn get_object(&self) -> GcType<ObjectBody> {
-        match self {
-            Variable::Object(body) => *body,
-            _ => panic!("huh"),
         }
     }
 }

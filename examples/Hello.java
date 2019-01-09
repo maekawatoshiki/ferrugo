@@ -104,9 +104,9 @@ class Hello {
     person.show();
     Teacher eng = new Teacher("uint256_t", "English");
     eng.show();
-   
-    for (int i = 1; i <= 50; i++) {
-      if (is_prime(i)) System.out.println(i + " is prime");
+    
+    for (int i = 1; i <= 1000000; i++) {
+      if (is_prime(i)) System.out.println(i);
     }
     
     int arr[] = new int[8];

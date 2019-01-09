@@ -5,7 +5,7 @@ use super::super::class::classfile::{method, method::MethodInfo};
 use super::super::class::classheap::ClassHeap;
 use super::super::gc::{gc, gc::GcType};
 use super::cfg::CFGMaker;
-use super::frame::{AType, Array, Frame, Variable};
+use super::frame::{AType, Array, Frame, ObjectBody, Variable};
 use super::objectheap::ObjectHeap;
 use super::{jit, jit::VariableType, jit::JIT};
 use ansi_term::Colour;
@@ -557,16 +557,17 @@ impl VM {
 
         match signature.as_str() {
             "java/io/PrintStream.println:(I)V" => {
-                println!("{}", self.stack[self.bp + 1].get_int());
+                jit::java_io_printstream_println_i_v(
+                    self.stack[self.bp].get_pointer::<u64>(),
+                    self.stack[self.bp + 1].get_int(),
+                );
             }
             "java/io/PrintStream.println:(D)V" => {
                 println!("{}", self.stack[self.bp + 1].get_double());
             }
             "java/io/PrintStream.println:(Ljava/lang/String;)V" => {
-                let object_body = match &self.stack[self.bp + 1] {
-                    Variable::Object(body) => unsafe { &mut **body },
-                    _ => panic!(),
-                };
+                let object_body =
+                    unsafe { &mut *self.stack[self.bp + 1].get_pointer::<ObjectBody>() };
                 println!("{}", unsafe {
                     &*(object_body
                         .variables
@@ -582,16 +583,12 @@ impl VM {
                     objectheap.create_string_object(format!("{}", i), self.classheap);
             }
             "java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;" => {
-                let string_builder = match &self.stack[self.bp + 0] {
-                    Variable::Object(body) => unsafe { &mut **body },
-                    _ => panic!(),
-                };
-                let append_str = match &self.stack[self.bp + frame.sp - 1] {
-                    Variable::Object(body) => unsafe {
-                        let string = &mut **body;
-                        &*(string.variables.get("str").unwrap().get_pointer::<String>())
-                    },
-                    _ => panic!(),
+                let string_builder =
+                    unsafe { &mut *self.stack[self.bp + 0].get_pointer::<ObjectBody>() };
+                let append_str = unsafe {
+                    let string =
+                        &mut *self.stack[self.bp + frame.sp - 1].get_pointer::<ObjectBody>();
+                    &*(string.variables.get("str").unwrap().get_pointer::<String>())
                 };
                 let string = {
                     unsafe {
@@ -601,7 +598,7 @@ impl VM {
                             .or_insert(
                                 objectheap.create_string_object("".to_string(), self.classheap),
                             )
-                            .get_object();
+                            .get_pointer::<ObjectBody>();
                         &mut *(string
                             .variables
                             .get_mut("str")
@@ -612,10 +609,8 @@ impl VM {
                 string.push_str(append_str);
             }
             "java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;" => {
-                let string_builder = match &self.stack[self.bp + 0] {
-                    Variable::Object(body) => unsafe { &mut **body },
-                    _ => panic!(),
-                };
+                let string_builder =
+                    unsafe { &mut *self.stack[self.bp + 0].get_pointer::<ObjectBody>() };
                 let append_int = self.stack[self.bp + frame.sp - 1].get_int();
                 let string = {
                     unsafe {
@@ -625,7 +620,7 @@ impl VM {
                             .or_insert(
                                 objectheap.create_string_object("".to_string(), self.classheap),
                             )
-                            .get_object();
+                            .get_pointer::<ObjectBody>();
                         &mut *(string.variables.get_mut("str").unwrap().get_pointer()
                             as GcType<String>)
                     }
@@ -633,10 +628,8 @@ impl VM {
                 string.push_str(format!("{}", append_int).as_str());
             }
             "java/lang/StringBuilder.toString:()Ljava/lang/String;" => {
-                let string_builder = match &self.stack[self.bp + 0] {
-                    Variable::Object(body) => unsafe { &mut **body },
-                    _ => panic!(),
-                };
+                let string_builder =
+                    unsafe { &mut *self.stack[self.bp + 0].get_pointer::<ObjectBody>() };
                 let s = string_builder.variables.get("str").unwrap().clone();
                 self.stack[self.bp + 0] = s;
             }
@@ -658,7 +651,8 @@ impl VM {
         };
         frame.pc += 3;
 
-        let objectref = unsafe { &mut *self.stack[self.bp + frame.sp - 1].get_object() };
+        let objectref =
+            unsafe { &mut *self.stack[self.bp + frame.sp - 1].get_pointer::<ObjectBody>() };
         frame.sp -= 1;
 
         let name_and_type_index = fld!(
@@ -695,7 +689,8 @@ impl VM {
         };
         frame.pc += 3;
 
-        let objectref = unsafe { &mut *self.stack[self.bp + frame.sp - 2].get_object() };
+        let objectref =
+            unsafe { &mut *self.stack[self.bp + frame.sp - 2].get_pointer::<ObjectBody>() };
         let value = self.stack[self.bp + frame.sp - 1].clone();
         frame.sp -= 2;
 
