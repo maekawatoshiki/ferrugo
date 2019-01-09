@@ -1,19 +1,19 @@
-use super::super::class::class::Class;
-use super::super::class::classfile::constant::Constant;
-use super::super::gc::gc::GcType;
-use super::cfg::{Block, BrKind};
-use super::frame::Variable;
-use super::objectheap::ObjectHeap;
-use super::vm::{load_class, Inst};
+use super::{
+    super::{
+        class::{class::Class, classfile::constant::Constant},
+        gc::gc::GcType,
+    },
+    cfg::{Block, BrKind},
+    frame::{ObjectBody, Variable},
+    objectheap::ObjectHeap,
+    vm::{load_class, Inst},
+};
 use libc;
 use llvm;
-use llvm::core::*;
-use llvm::prelude::*;
+use llvm::{core::*, prelude::*};
 use rand::random;
 use rustc_hash::FxHashMap;
-use std::ffi::CString;
-use std::mem::transmute;
-use std::ptr;
+use std::{ffi::CString, mem::transmute, ptr};
 
 pub type CResult<T> = Result<T, Error>;
 
@@ -144,7 +144,7 @@ impl JIT {
             native_functions: {
                 let mut map = FxHashMap::default();
                 let func_ty = LLVMFunctionType(
-                    LLVMVoidTypeInContext(context),
+                    VariableType::Void.to_llvmty(context),
                     vec![
                         VariableType::Pointer.to_llvmty(context),
                         VariableType::Int.to_llvmty(context),
@@ -161,6 +161,27 @@ impl JIT {
                     func_ty,
                 );
                 map.insert("java/io/PrintStream.println:(I)V".to_string(), func);
+                let func_ty = LLVMFunctionType(
+                    VariableType::Void.to_llvmty(context),
+                    vec![
+                        VariableType::Pointer.to_llvmty(context),
+                        VariableType::Pointer.to_llvmty(context),
+                    ]
+                    .as_mut_ptr(),
+                    2,
+                    0,
+                );
+                let func = LLVMAddFunction(
+                    module,
+                    CString::new("java/io/PrintStream.println:(Ljava/lang/String;)V")
+                        .unwrap()
+                        .as_ptr(),
+                    func_ty,
+                );
+                map.insert(
+                    "java/io/PrintStream.println:(Ljava/lang/String;)V".to_string(),
+                    func,
+                );
                 map
             },
         }
@@ -179,7 +200,7 @@ impl JIT {
 
         for i in bp + sp - exec_info.args_ty.len()..bp + sp {
             local_vars.push(match stack[i] {
-                Variable::Int(i) => LLVMConstInt(LLVMInt32TypeInContext(self.context), i as u64, 1),
+                Variable::Int(i) => llvm_const_int32(self.context, i as u64),
                 _ => return None,
             });
         }
@@ -221,6 +242,8 @@ impl JIT {
         {
             panic!("llvm error: failed to initialize execute engine")
         }
+
+        self.add_native_functions(ee);
 
         let ret_val = llvm::execution_engine::LLVMRunFunction(ee, func, 0, vec![].as_mut_ptr());
         let ret_int = llvm::execution_engine::LLVMGenericValueToInt(ret_val, 0);
@@ -265,6 +288,28 @@ impl JIT {
         }
 
         Some(pc as usize)
+    }
+}
+
+impl JIT {
+    // TODO
+    unsafe fn add_native_functions(&self, ee: llvm::execution_engine::LLVMExecutionEngineRef) {
+        for (name, func) in &[
+            (
+                "java/io/PrintStream.println:(I)V",
+                java_io_printstream_println_i_v as *mut libc::c_void,
+            ),
+            (
+                "java/io/PrintStream.println:(Ljava/lang/String;)V",
+                java_io_printstream_println_string_v as *mut libc::c_void,
+            ),
+        ] {
+            llvm::execution_engine::LLVMAddGlobalMapping(
+                ee,
+                *self.native_functions.get(*name).unwrap(),
+                *func,
+            );
+        }
     }
 }
 
@@ -393,6 +438,8 @@ impl JIT {
             panic!("llvm error: failed to initialize execute engine")
         }
 
+        self.add_native_functions(ee);
+
         Ok(FuncJITExecInfo {
             func,
             cant_compile: false,
@@ -450,13 +497,9 @@ impl JIT {
             let local_var_ref = LLVMBuildGEP(
                 self.builder,
                 arg_0,
-                vec![LLVMConstInt(
-                    LLVMInt32TypeInContext(self.context),
-                    i as u64,
-                    0,
-                )]
-                .as_mut_slice()
-                .as_mut_ptr(),
+                vec![llvm_const_uint64(self.context, i as u64)]
+                    .as_mut_slice()
+                    .as_mut_ptr(),
                 1,
                 CString::new("").unwrap().as_ptr(),
             );
@@ -516,11 +559,7 @@ impl JIT {
         if cur_bb_has_no_terminator(self.builder) {
             LLVMBuildRet(
                 self.builder,
-                LLVMConstInt(
-                    LLVMInt32TypeInContext(self.context),
-                    last_block.code_end_position() as u64,
-                    0,
-                ),
+                llvm_const_int32(self.context, last_block.code_end_position() as u64),
             );
         }
 
@@ -531,10 +570,7 @@ impl JIT {
                 }
                 LLVMPositionBuilderAtEnd(self.builder, bb);
                 if cur_bb_has_no_terminator(self.builder) {
-                    LLVMBuildRet(
-                        self.builder,
-                        LLVMConstInt(LLVMInt32TypeInContext(self.context), *pos as u64, 0),
-                    );
+                    LLVMBuildRet(self.builder, llvm_const_int32(self.context, *pos as u64));
                 }
             }
         }
@@ -568,14 +604,7 @@ impl JIT {
             panic!("llvm error: failed to initialize execute engine")
         }
 
-        llvm::execution_engine::LLVMAddGlobalMapping(
-            ee,
-            *self
-                .native_functions
-                .get("java/io/PrintStream.println:(I)V")
-                .unwrap(),
-            java_io_printstream_println_i_v as *mut libc::c_void,
-        );
+        self.add_native_functions(ee);
 
         let func_raw = llvm::execution_engine::LLVMGetFunctionAddress(
             ee,
@@ -713,7 +742,6 @@ impl JIT {
         mut stack: Vec<LLVMValueRef>,
         loop_compile: bool,
     ) -> CResult<Vec<LLVMValueRef>> {
-        let mut object_stack = vec![];
         let code = &block.code;
         let mut pc = 0;
 
@@ -729,7 +757,7 @@ impl JIT {
                 | Inst::iconst_4
                 | Inst::iconst_5 => {
                     let num = (cur_code as i64 - Inst::iconst_0 as i64) as u64;
-                    stack.push(LLVMConstInt(LLVMInt32TypeInContext(self.context), num, 1));
+                    stack.push(llvm_const_int32(self.context, num));
                 }
                 Inst::istore_0 | Inst::istore_1 | Inst::istore_2 | Inst::istore_3 => {
                     let name = (cur_code - Inst::istore_0) as usize;
@@ -798,7 +826,7 @@ impl JIT {
                             _ => unreachable!(),
                         },
                         val,
-                        LLVMConstInt(LLVMInt32TypeInContext(self.context), 0, 0),
+                        llvm_const_uint32(self.context, 0),
                         CString::new("icmp").unwrap().as_ptr(),
                     );
                     let destinations = block.kind.get_conditional_jump_destinations();
@@ -823,7 +851,7 @@ impl JIT {
                     let inc = LLVMBuildAdd(
                         self.builder,
                         var_val,
-                        LLVMConstInt(LLVMInt32TypeInContext(self.context), const_ as u64, 0),
+                        llvm_const_uint32(self.context, const_ as u64),
                         CString::new("iinc").unwrap().as_ptr(),
                     );
                     LLVMBuildStore(self.builder, inc, var_ref);
@@ -869,34 +897,38 @@ impl JIT {
                     ));
                 }
                 Inst::bipush => {
-                    stack.push(LLVMConstInt(
-                        LLVMInt32TypeInContext(self.context),
-                        code[pc + 1] as i8 as u64,
-                        0,
-                    ));
+                    stack.push(llvm_const_uint32(self.context, code[pc + 1] as i8 as u64));
                 }
                 Inst::sipush => {
                     let val = ((code[pc + 1] as i16) << 8) + code[pc + 2] as i16;
-                    stack.push(LLVMConstInt(
-                        LLVMInt32TypeInContext(self.context),
-                        val as u64,
-                        0,
-                    ));
+                    stack.push(llvm_const_uint32(self.context, val as u64));
                 }
                 Inst::ldc => {
                     let cur_class = &mut *self.cur_class.unwrap();
                     let index = code[pc + 1] as usize;
                     match cur_class.classfile.constant_pool[index] {
-                        Constant::IntegerInfo { i } => stack.push(LLVMConstInt(
-                            LLVMInt32TypeInContext(self.context),
-                            i as u64,
-                            0,
-                        )),
+                        Constant::IntegerInfo { i } => {
+                            stack.push(llvm_const_int32(self.context, i as u64))
+                        }
                         Constant::FloatInfo { f } => stack.push(LLVMConstReal(
                             LLVMFloatTypeInContext(self.context),
                             f as f64,
                         )),
-                        _ => unimplemented!(),
+                        Constant::String { string_index } => {
+                            let string = cur_class
+                                .get_utf8_from_const_pool(string_index as usize)
+                                .unwrap()
+                                .to_owned();
+                            // TODO: Constant string refers to constant pool,
+                            // so should not create a new string object.
+                            // "aaa" == "aaa" // => true
+                            stack.push(
+                                (&mut *self.objectheap)
+                                    .create_string_object(string, cur_class.classheap.unwrap())
+                                    .to_llvm_val(self.context),
+                            )
+                        }
+                        _ => return Err(Error::CouldntCompile),
                     };
                 }
                 Inst::ireturn if !loop_compile => {
@@ -907,6 +939,7 @@ impl JIT {
                     LLVMBuildRetVoid(self.builder);
                 }
                 Inst::getstatic => {
+                    // TODO: The following code should be a method.
                     let cur_class = &mut *self.cur_class.unwrap();
                     let mref_index = ((code[pc + 1] as usize) << 8) + code[pc + 2] as usize;
                     let (class_index, name_and_type_index) = fld!(
@@ -934,7 +967,7 @@ impl JIT {
                         .get_utf8()
                         .unwrap();
                     let object = (&*class).get_static_variable(name.as_str()).unwrap();
-                    object_stack.push(object);
+                    stack.push(object.to_llvm_val(self.context));
                 }
                 Inst::invokestatic | Inst::invokevirtual => {
                     // TODO: The following code should be a method.
@@ -971,12 +1004,6 @@ impl JIT {
                     let (_virtual_class, exec_method) =
                         (&*class).get_method(name, descriptor).unwrap();
 
-                    let signature = format!("{}.{}:{}", class_name, name, descriptor);
-                    let objectref = match cur_code {
-                        Inst::invokevirtual => object_stack.pop(),
-                        _ => None,
-                    };
-
                     let jit_info_mgr = (&mut *class).get_jit_info_mgr(name_index, descriptor_index);
                     let jit_func = jit_info_mgr.get_jit_func();
                     let llvm_func = if Some((
@@ -985,8 +1012,10 @@ impl JIT {
                     )) == self.cur_func_indices
                     {
                         self.cur_func.unwrap()
-                    } else if let Some(native_func) = self.native_functions.get(signature.as_str())
-                    {
+                    } else if let Some(native_func) = {
+                        let signature = format!("{}.{}:{}", class_name, name, descriptor);
+                        self.native_functions.get(signature.as_str())
+                    } {
                         *native_func
                     } else {
                         if jit_func.is_none() {
@@ -1002,25 +1031,10 @@ impl JIT {
                     };
 
                     let mut args = vec![];
-                    let args_count =
-                        LLVMCountParams(llvm_func) - if objectref.is_some() { 1 } else { 0 };
-
+                    let args_count = LLVMCountParams(llvm_func);
                     for _ in 0..args_count {
                         args.push(stack.pop().unwrap());
                     }
-                    if let Some(objectref) = objectref {
-                        let ptr_as_int = LLVMConstInt(
-                            LLVMInt64TypeInContext(self.context),
-                            objectref.get_pointer::<u64>() as u64,
-                            0,
-                        );
-                        let const_ptr = LLVMConstIntToPtr(
-                            ptr_as_int,
-                            VariableType::Pointer.to_llvmty(self.context),
-                        );
-                        args.push(const_ptr);
-                    }
-
                     args.reverse();
 
                     let ret = LLVMBuildCall(
@@ -1157,7 +1171,48 @@ impl BasicBlockInfo {
     }
 }
 
+impl Variable {
+    pub unsafe fn to_llvm_val(&self, ctx: LLVMContextRef) -> LLVMValueRef {
+        match self {
+            Variable::Char(c) => LLVMConstInt(LLVMInt16TypeInContext(ctx), *c as u64, 1),
+            Variable::Short(i) => LLVMConstInt(LLVMInt16TypeInContext(ctx), *i as u64, 1),
+            Variable::Int(i) => LLVMConstInt(LLVMInt32TypeInContext(ctx), *i as u64, 1),
+            Variable::Float(f) => LLVMConstReal(LLVMFloatTypeInContext(ctx), *f as f64),
+            Variable::Double(f) => LLVMConstReal(LLVMDoubleTypeInContext(ctx), *f),
+            Variable::Pointer(p) => {
+                let ptr_as_int = LLVMConstInt(LLVMInt64TypeInContext(ctx), *p as u64, 0);
+                let const_ptr = LLVMConstIntToPtr(ptr_as_int, VariableType::Pointer.to_llvmty(ctx));
+                const_ptr
+            }
+        }
+    }
+}
+
+unsafe fn llvm_const_int32(ctx: LLVMContextRef, n: u64) -> LLVMValueRef {
+    LLVMConstInt(LLVMInt32TypeInContext(ctx), n, 1)
+}
+
+unsafe fn llvm_const_uint32(ctx: LLVMContextRef, n: u64) -> LLVMValueRef {
+    LLVMConstInt(LLVMInt32TypeInContext(ctx), n, 0)
+}
+
+unsafe fn llvm_const_uint64(ctx: LLVMContextRef, n: u64) -> LLVMValueRef {
+    LLVMConstInt(LLVMInt64TypeInContext(ctx), n, 0)
+}
+
 #[no_mangle]
 pub extern "C" fn java_io_printstream_println_i_v(_ptr: *mut u64, i: i32) {
     println!("{}", i);
+}
+
+#[no_mangle]
+pub extern "C" fn java_io_printstream_println_string_v(_ptr: *mut u64, s: *mut ObjectBody) {
+    let object_body = unsafe { &mut *s };
+    println!("{}", unsafe {
+        &*(object_body
+            .variables
+            .get("str")
+            .unwrap()
+            .get_pointer::<String>())
+    });
 }
