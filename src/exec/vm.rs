@@ -164,13 +164,13 @@ impl VM {
                 Inst::dconst_0 | Inst::dconst_1 => {
                     self.stack[self.bp + frame.sp] =
                         Variable::Double((cur_code as i64 - Inst::dconst_0 as i64) as f64);
-                    frame.sp += 1;
+                    frame.sp += 2;
                     frame.pc += 1;
                 }
                 Inst::dstore => {
                     let index = code[frame.pc as usize + 1] as usize;
-                    self.stack[self.bp + index] = self.stack[self.bp + frame.sp - 1].clone();
-                    frame.sp -= 1;
+                    self.stack[self.bp + index] = self.stack[self.bp + frame.sp - 2].clone();
+                    frame.sp -= 2;
                     frame.pc += 2;
                 }
                 Inst::astore => {
@@ -200,7 +200,7 @@ impl VM {
                 Inst::dload_0 | Inst::dload_1 | Inst::dload_2 | Inst::dload_3 => {
                     self.stack[self.bp + frame.sp] =
                         self.stack[self.bp + cur_code as usize - Inst::dload_0 as usize].clone();
-                    frame.sp += 1;
+                    frame.sp += 2;
                     frame.pc += 1;
                 }
                 Inst::iaload => {
@@ -256,7 +256,7 @@ impl VM {
                         _ => unimplemented!(),
                     };
                     self.stack[self.bp + frame.sp] = val;
-                    frame.sp += 1;
+                    frame.sp += 2;
                     frame.pc += 3;
                 }
                 Inst::aload => {
@@ -268,7 +268,7 @@ impl VM {
                 Inst::dload => {
                     let index = code[frame.pc + 1] as usize;
                     self.stack[self.bp + frame.sp] = self.stack[self.bp + index].clone();
-                    frame.sp += 1;
+                    frame.sp += 2;
                     frame.pc += 2;
                 }
                 Inst::iload => {
@@ -285,8 +285,8 @@ impl VM {
                 }
                 Inst::dstore_0 | Inst::dstore_1 | Inst::dstore_2 | Inst::dstore_3 => {
                     self.stack[self.bp + (cur_code as usize - Inst::dstore_0 as usize)] =
-                        self.stack[self.bp + frame.sp - 1].clone();
-                    frame.sp -= 1;
+                        self.stack[self.bp + frame.sp - 2].clone();
+                    frame.sp -= 2;
                     frame.pc += 1;
                 }
                 Inst::astore_0 | Inst::astore_1 | Inst::astore_2 | Inst::astore_3 => {
@@ -325,11 +325,11 @@ impl VM {
                     frame.pc += 1;
                 }
                 Inst::dadd => {
-                    self.stack[self.bp + frame.sp - 2] = Variable::Double(
-                        self.stack[self.bp + frame.sp - 2].get_double()
-                            + self.stack[self.bp + frame.sp - 1].get_double(),
+                    self.stack[self.bp + frame.sp - 4] = Variable::Double(
+                        self.stack[self.bp + frame.sp - 4].get_double()
+                            + self.stack[self.bp + frame.sp - 2].get_double(),
                     );
-                    frame.sp -= 1;
+                    frame.sp -= 2;
                     frame.pc += 1;
                 }
                 Inst::isub => {
@@ -341,11 +341,11 @@ impl VM {
                     frame.pc += 1;
                 }
                 Inst::dsub => {
-                    self.stack[self.bp + frame.sp - 2] = Variable::Double(
-                        self.stack[self.bp + frame.sp - 2].get_double()
-                            - self.stack[self.bp + frame.sp - 1].get_double(),
+                    self.stack[self.bp + frame.sp - 4] = Variable::Double(
+                        self.stack[self.bp + frame.sp - 4].get_double()
+                            - self.stack[self.bp + frame.sp - 2].get_double(),
                     );
-                    frame.sp -= 1;
+                    frame.sp -= 2;
                     frame.pc += 1;
                 }
                 Inst::imul => {
@@ -357,19 +357,19 @@ impl VM {
                     frame.pc += 1;
                 }
                 Inst::dmul => {
-                    self.stack[self.bp + frame.sp - 2] = Variable::Double(
-                        self.stack[self.bp + frame.sp - 2].get_double()
-                            * self.stack[self.bp + frame.sp - 1].get_double(),
+                    self.stack[self.bp + frame.sp - 4] = Variable::Double(
+                        self.stack[self.bp + frame.sp - 4].get_double()
+                            * self.stack[self.bp + frame.sp - 2].get_double(),
                     );
-                    frame.sp -= 1;
+                    frame.sp -= 2;
                     frame.pc += 1;
                 }
                 Inst::ddiv => {
-                    self.stack[self.bp + frame.sp - 2] = Variable::Double(
-                        self.stack[self.bp + frame.sp - 2].get_double()
-                            / self.stack[self.bp + frame.sp - 1].get_double(),
+                    self.stack[self.bp + frame.sp - 4] = Variable::Double(
+                        self.stack[self.bp + frame.sp - 4].get_double()
+                            / self.stack[self.bp + frame.sp - 2].get_double(),
                     );
-                    frame.sp -= 1;
+                    frame.sp -= 2;
                     frame.pc += 1;
                 }
                 Inst::irem => {
@@ -381,8 +381,8 @@ impl VM {
                     frame.pc += 1;
                 }
                 Inst::dneg => {
-                    self.stack[self.bp + frame.sp - 1] =
-                        Variable::Double(-self.stack[self.bp + frame.sp - 1].get_double());
+                    self.stack[self.bp + frame.sp - 2] =
+                        Variable::Double(-self.stack[self.bp + frame.sp - 2].get_double());
                     frame.pc += 1;
                 }
                 Inst::iinc => {
@@ -399,6 +399,7 @@ impl VM {
                 Inst::i2d => {
                     self.stack[self.bp + frame.sp - 1] =
                         Variable::Double(self.stack[self.bp + frame.sp - 1].get_int() as f64);
+                    frame.sp += 1;
                     frame.pc += 1;
                 }
                 Inst::i2s => {
@@ -413,7 +414,7 @@ impl VM {
                 Inst::newarray => self.run_new_array(),
                 Inst::anewarray => self.run_new_obj_array(),
                 Inst::pop | Inst::pop2 => {
-                    frame.sp -= 1;
+                    frame.sp -= if cur_code == Inst::pop2 { 2 } else { 1 };
                     frame.pc += 1;
                 }
                 Inst::dup => {
@@ -426,10 +427,10 @@ impl VM {
                     let dst = (frame.pc as isize + branch as isize) as usize;
                     loop_jit!(frame, dst < frame.pc, dst, frame.pc + 3, frame.pc = dst);
                 }
-                Inst::dcmpl => {
-                    let val2 = self.stack[self.bp + frame.sp - 1].get_double();
-                    let val1 = self.stack[self.bp + frame.sp - 2].get_double();
-                    frame.sp -= 2;
+                Inst::dcmpl | Inst::dcmpg => {
+                    let val2 = self.stack[self.bp + frame.sp - 2].get_double();
+                    let val1 = self.stack[self.bp + frame.sp - 4].get_double();
+                    frame.sp -= 4;
                     if val1 > val2 {
                         self.stack[self.bp + frame.sp] = Variable::Int(1);
                     } else if val1 == val2 {
@@ -437,7 +438,8 @@ impl VM {
                     } else if val1 < val2 {
                         self.stack[self.bp + frame.sp] = Variable::Int(-1);
                     } else if val1.is_nan() || val2.is_nan() {
-                        self.stack[self.bp + frame.sp] = Variable::Int(-1);
+                        self.stack[self.bp + frame.sp] =
+                            Variable::Int(if cur_code == Inst::dcmpg { 1 } else { -1 });
                     }
                     frame.sp += 1;
                     frame.pc += 1;
@@ -446,11 +448,18 @@ impl VM {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                     let val = self.stack[self.bp + frame.sp - 1].get_int();
                     frame.sp -= 1;
-                    if val == 0 {
-                        frame.pc = (frame.pc as isize + branch as isize) as usize;
-                    } else {
-                        frame.pc += 3;
-                    }
+                    let dst = (frame.pc as isize + branch as isize) as usize;
+                    loop_jit!(
+                        frame,
+                        dst < frame.pc,
+                        dst,
+                        frame.pc + 3,
+                        if val == 0 {
+                            frame.pc = dst;
+                        } else {
+                            frame.pc += 3;
+                        }
+                    );
                 }
                 Inst::ifne => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
@@ -463,6 +472,40 @@ impl VM {
                         dst,
                         frame.pc + 3,
                         if val != 0 {
+                            frame.pc = dst;
+                        } else {
+                            frame.pc += 3;
+                        }
+                    );
+                }
+                Inst::ifle => {
+                    let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
+                    let val = self.stack[self.bp + frame.sp - 1].get_int();
+                    frame.sp -= 1;
+                    let dst = (frame.pc as isize + branch as isize) as usize;
+                    loop_jit!(
+                        frame,
+                        dst < frame.pc,
+                        dst,
+                        frame.pc + 3,
+                        if val <= 0 {
+                            frame.pc = dst;
+                        } else {
+                            frame.pc += 3;
+                        }
+                    );
+                }
+                Inst::ifge => {
+                    let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
+                    let val = self.stack[self.bp + frame.sp - 1].get_int();
+                    frame.sp -= 1;
+                    let dst = (frame.pc as isize + branch as isize) as usize;
+                    loop_jit!(
+                        frame,
+                        dst < frame.pc,
+                        dst,
+                        frame.pc + 3,
+                        if val >= 0 {
                             frame.pc = dst;
                         } else {
                             frame.pc += 3;
@@ -530,11 +573,11 @@ impl VM {
                 //     frame.sp -= 1;
                 // }
                 Inst::ireturn => {
-                    self.stack[self.bp] = self.stack[self.bp + frame!().sp - 1].clone();
+                    self.stack[self.bp] = self.stack[self.bp + frame.sp - 1].clone();
                     return Inst::ireturn;
                 }
                 Inst::dreturn => {
-                    self.stack[self.bp] = self.stack[self.bp + frame!().sp - 1].clone();
+                    self.stack[self.bp] = self.stack[self.bp + frame.sp - 2].clone();
                     return Inst::dreturn;
                 }
                 Inst::return_ => {
@@ -580,6 +623,13 @@ impl VM {
             }
             "java/io/PrintStream.println:(Ljava/lang/String;)V" => {
                 jit::java_io_printstream_println_string_v(
+                    self.runtime_env,
+                    self.stack[self.bp + 0].get_pointer::<ObjectBody>(),
+                    self.stack[self.bp + 1].get_pointer::<ObjectBody>(),
+                );
+            }
+            "java/io/PrintStream.print:(Ljava/lang/String;)V" => {
+                jit::java_io_printstream_print_string_v(
                     self.runtime_env,
                     self.stack[self.bp + 0].get_pointer::<ObjectBody>(),
                     self.stack[self.bp + 1].get_pointer::<ObjectBody>(),
@@ -878,7 +928,11 @@ impl VM {
 
         if !descriptor.ends_with(")V") {
             // Returns a value
-            frame.sp += 1;
+            frame.sp += if descriptor.ends_with(")D") || descriptor.ends_with(")D") {
+                2
+            } else {
+                1
+            };
         }
     }
 
@@ -1026,7 +1080,7 @@ fn count_params(descriptor: &str) -> usize {
             break;
         }
         if descriptor.chars().nth(i).unwrap() == 'J' || descriptor.chars().nth(i).unwrap() == 'D' {
-            // count += 1;
+            count += 1;
         }
         count += 1;
         i += 1;
@@ -1179,8 +1233,11 @@ pub mod Inst {
     pub const i2d:          u8 = 135;
     pub const i2s:          u8 = 147;
     pub const dcmpl:        u8 = 151;
+    pub const dcmpg:        u8 = 152;
     pub const ifeq:         u8 = 153;
     pub const ifne:         u8 = 154;
+    pub const ifge:         u8 = 156;
+    pub const ifle:         u8 = 158;
     pub const if_icmpne:    u8 = 160;
     pub const if_icmpge:    u8 = 162;
     pub const if_icmpgt:    u8 = 163;
@@ -1253,8 +1310,11 @@ pub mod Inst {
                 dup => 1,
                 goto => 3,
                 dcmpl => 1,
+                dcmpg => 1,
                 ifeq => 3,
                 ifne => 3,
+                ifle => 3,
+                ifge => 3,
                 if_icmpne =>3, 
                 if_icmpge =>3, 
                 if_icmpgt =>3, 

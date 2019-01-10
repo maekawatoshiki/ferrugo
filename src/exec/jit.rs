@@ -25,6 +25,7 @@ pub enum Error {
 #[derive(Debug, Clone, PartialEq)]
 pub enum VariableType {
     Int,
+    Double,
     Void,
     Pointer,
 }
@@ -37,6 +38,7 @@ impl CastIntoLLVMType for VariableType {
     unsafe fn to_llvmty(&self, ctx: LLVMContextRef) -> LLVMTypeRef {
         match self {
             &VariableType::Int => LLVMInt32TypeInContext(ctx),
+            &VariableType::Double => LLVMDoubleTypeInContext(ctx),
             &VariableType::Void => LLVMVoidTypeInContext(ctx),
             &VariableType::Pointer => LLVMPointerType(LLVMInt8TypeInContext(ctx), 0),
         }
@@ -183,6 +185,28 @@ impl JIT {
                     "java/io/PrintStream.println:(Ljava/lang/String;)V".to_string(),
                     func,
                 );
+                let func_ty = LLVMFunctionType(
+                    VariableType::Void.to_llvmty(context),
+                    vec![
+                        VariableType::Pointer.to_llvmty(context),
+                        VariableType::Pointer.to_llvmty(context),
+                        VariableType::Pointer.to_llvmty(context),
+                    ]
+                    .as_mut_ptr(),
+                    3,
+                    0,
+                );
+                let func = LLVMAddFunction(
+                    module,
+                    CString::new("java/io/PrintStream.print:(Ljava/lang/String;)V")
+                        .unwrap()
+                        .as_ptr(),
+                    func_ty,
+                );
+                map.insert(
+                    "java/io/PrintStream.print:(Ljava/lang/String;)V".to_string(),
+                    func,
+                );
                 let name = "java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;";
                 let func_ty = LLVMFunctionType(
                     VariableType::Pointer.to_llvmty(context),
@@ -309,6 +333,10 @@ impl JIT {
                 stack[bp + sp] = Variable::Int(ret_int as i32);
                 sp += 1
             }
+            VariableType::Double => {
+                stack[bp + sp] = Variable::Double(transmute::<u64, f64>(ret_int));
+                sp += 1
+            }
             VariableType::Pointer => {}
             VariableType::Void => {}
         }
@@ -327,6 +355,7 @@ impl JIT {
         for (offset, _ty) in &exec_info.local_variables {
             raw_local_vars.push(match stack[bp + offset] {
                 Variable::Int(i) => Box::into_raw(Box::new(i)) as *mut libc::c_void,
+                Variable::Double(f) => Box::into_raw(Box::new(f)) as *mut libc::c_void,
                 _ => return None,
             });
         }
@@ -338,6 +367,7 @@ impl JIT {
         for (i, (offset, ty)) in exec_info.local_variables.iter().enumerate() {
             stack[bp + offset] = match ty {
                 VariableType::Int => Variable::Int(*(raw_local_vars[i] as *mut i32)),
+                VariableType::Double => Variable::Double(*(raw_local_vars[i] as *mut f64)),
                 _ => return None,
             };
             Box::from_raw(raw_local_vars[i]);
@@ -358,6 +388,10 @@ impl JIT {
             (
                 "java/io/PrintStream.println:(Ljava/lang/String;)V",
                 java_io_printstream_println_string_v as *mut libc::c_void,
+            ),
+            (
+                "java/io/PrintStream.print:(Ljava/lang/String;)V",
+                java_io_printstream_print_string_v as *mut libc::c_void,
             ),
             (
                 "java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;",
@@ -1250,6 +1284,7 @@ impl JIT {
                 }
                 'I' => VariableType::Int,
                 'Z' => VariableType::Int,
+                'D' => VariableType::Double,
                 ')' => {
                     args = false;
                     i += 1;
@@ -1357,6 +1392,22 @@ pub extern "C" fn java_io_printstream_println_string_v(
 ) {
     let object_body = unsafe { &mut *s };
     println!("{}", unsafe {
+        &*(object_body
+            .variables
+            .get("str")
+            .unwrap()
+            .get_pointer::<String>())
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn java_io_printstream_print_string_v(
+    _renv: *mut RuntimeEnvironment,
+    _obj: *mut ObjectBody,
+    s: *mut ObjectBody,
+) {
+    let object_body = unsafe { &mut *s };
+    print!("{}", unsafe {
         &*(object_body
             .variables
             .get("str")
