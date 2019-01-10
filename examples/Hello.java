@@ -84,13 +84,59 @@ class Hello {
   }
 
   public static void main(String[] args) {
-    // mandelbrot(1.0,1.0,100);
-    // double a=1.2;
-    // double b=2.3;
-    // int i = 3;
-    // System.out.println(1.2-a*b);
-    // System.out.println(b);
-    // System.out.println(i);
+    int count = 0;
+    for (int i = 0; i < 10000; i++) {
+      if (i % 33 == 0) continue;
+      for (int k = 0; k < 10000; k++) {
+        count += k % 2 == 0 ? i : -1;
+      }
+    }
+    System.out.println("jit test " + count);
+    
+    System.out.println(123);
+    System.out.println(123456789);
+    System.out.println(calc_pi());
+    
+    char a = 'a';
+    short q = 6553, w = 3;
+    q += w;
+    
+    System.out.println("fibo(36) = " + fibo(36));
+    
+    Point p = new Point();
+    p.x = 2;
+    p.y = 3;
+    p.show();
+    
+    int z = 2;
+    if (z == 2) {
+      z = 3;
+    } else {
+      z = 5;
+    }
+    System.out.println(z);
+    
+    Person person = new Person("uint256_t");
+    person.show();
+    Teacher eng = new Teacher("uint256_t", "English");
+    eng.show();
+    
+    for (int i = 1; i <= 1000000; i++) {
+      if (is_prime(i)) System.out.println(i + " is prime");
+    }
+    
+    int arr[] = new int[8];
+    for (int i = 0; i < 8; i++) 
+      arr[i] = i * 2;
+    for (int i = 0; i < 8; i++) 
+      System.out.println("arr[" + i + "] = " + arr[i]);
+    
+    Person people[] = new Person[2];
+    people[0] = new Person("ken");
+    people[0].show();
+    people[1] = new Person("david");
+    people[1].show();
+
     double x_max = 2, x_min = -2, y_max = 1, y_min = -1, dx = 0.03, dy = 0.045;
     for (double y = y_max; y > y_min; y -= dy) {
       for (double x = x_min; x < x_max; x += dx) {
@@ -106,58 +152,5 @@ class Hello {
       }
       System.out.println("");
     }
-
-    // int count = 0;
-    // for (int i = 0; i < 10000; i++) {
-    //   if (i % 33 == 0) continue;
-    //   for (int k = 0; k < 10000; k++) {
-    //     count += k % 2 == 0 ? i : -1;
-    //   }
-    // }
-    // System.out.println("jit test " + count);
-    //
-    // System.out.println(123);
-    // System.out.println(123456789);
-    // System.out.println(calc_pi());
-    //
-    // char a = 'a';
-    // short x = 6553, y = 3;
-    // x += y;
-    //
-    // System.out.println("fibo(36) = " + fibo(36));
-    //
-    // Point p = new Point();
-    // p.x = 2;
-    // p.y = 3;
-    // p.show();
-    //
-    // int z = 2;
-    // if (z == 2) {
-    //   z = 3;
-    // } else {
-    //   z = 5;
-    // }
-    // System.out.println(z);
-    //
-    // Person person = new Person("uint256_t");
-    // person.show();
-    // Teacher eng = new Teacher("uint256_t", "English");
-    // eng.show();
-    //
-    // for (int i = 1; i <= 1000000; i++) {
-    //   if (is_prime(i)) System.out.println(i + " is prime");
-    // }
-    //
-    // int arr[] = new int[8];
-    // for (int i = 0; i < 8; i++) 
-    //   arr[i] = i * 2;
-    // for (int i = 0; i < 8; i++) 
-    //   System.out.println("arr[" + i + "] = " + arr[i]);
-    //
-    // Person people[] = new Person[2];
-    // people[0] = new Person("ken");
-    // people[0].show();
-    // people[1] = new Person("david");
-    // people[1].show();
   }
 }

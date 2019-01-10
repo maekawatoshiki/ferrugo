@@ -143,6 +143,7 @@ impl JIT {
             phi_stack: FxHashMap::default(),
             runtime_env,
             native_functions: {
+                // TODO: Dirty.
                 let mut map = FxHashMap::default();
                 let func_ty = LLVMFunctionType(
                     VariableType::Void.to_llvmty(context),
@@ -278,11 +279,17 @@ impl JIT {
     ) -> Option<usize> {
         let mut local_vars = vec![];
 
-        for i in bp + sp - exec_info.args_ty.len()..bp + sp {
+        let mut i = bp + sp - exec_info.args_ty.len();
+        while i < bp + sp {
             local_vars.push(match stack[i] {
                 Variable::Int(i) => llvm_const_int32(self.context, i as u64),
+                Variable::Double(f) => {
+                    i += 1;
+                    llvm_const_double(self.context, f)
+                }
                 _ => return None,
             });
+            i += 1;
         }
 
         sp -= exec_info.args_ty.len();
@@ -468,12 +475,18 @@ impl JIT {
         let env = FxHashMap::default();
         self.env = env;
 
+        let mut var_id = 0;
         for (i, ty) in arg_types.iter().enumerate() {
             LLVMBuildStore(
                 self.builder,
                 LLVMGetParam(func, i as u32),
-                self.declare_local_var(i, &ty),
+                self.declare_local_var(var_id, &ty),
             );
+            var_id += match ty {
+                // TODO: VariableType::Long
+                VariableType::Double => 2,
+                _ => 1,
+            };
         }
 
         assert!(blocks.len() > 0);
@@ -521,6 +534,8 @@ impl JIT {
         self.cur_func = None;
         self.cur_func_indices = None;
 
+        when_debug!(LLVMDumpValue(func));
+
         llvm::analysis::LLVMVerifyFunction(
             func,
             llvm::analysis::LLVMVerifierFailureAction::LLVMAbortProcessAction,
@@ -529,8 +544,6 @@ impl JIT {
         if let Err(e) = compiling_error {
             return Err(e);
         }
-
-        when_debug!(LLVMDumpValue(func));
 
         LLVMRunPassManager(self.pass_mgr, self.module);
 
@@ -687,6 +700,8 @@ impl JIT {
         self.bblocks.clear();
         self.phi_stack.clear();
 
+        when_debug!(LLVMDumpModule(self.module));
+
         llvm::analysis::LLVMVerifyFunction(
             func,
             llvm::analysis::LLVMVerifierFailureAction::LLVMAbortProcessAction,
@@ -695,8 +710,6 @@ impl JIT {
         if let Err(e) = compiling_error {
             return Err(e);
         }
-
-        when_debug!(LLVMDumpModule(self.module));
 
         LLVMRunPassManager(self.pass_mgr, self.module);
 
@@ -867,6 +880,10 @@ impl JIT {
                     let num = (cur_code as i64 - Inst::iconst_0 as i64) as u64;
                     stack.push(llvm_const_int32(self.context, num));
                 }
+                Inst::dconst_0 | Inst::dconst_1 => {
+                    let num = cur_code as f64 - Inst::dconst_0 as f64;
+                    stack.push(llvm_const_double(self.context, num));
+                }
                 Inst::istore_0 | Inst::istore_1 | Inst::istore_2 | Inst::istore_3 => {
                     let name = (cur_code - Inst::istore_0) as usize;
                     let val = stack.pop().unwrap();
@@ -885,6 +902,15 @@ impl JIT {
                         self.declare_local_var(index, &VariableType::Int),
                     );
                 }
+                Inst::dstore => {
+                    let index = code[pc as usize + 1] as usize;
+                    let val = stack.pop().unwrap();
+                    LLVMBuildStore(
+                        self.builder,
+                        val,
+                        self.declare_local_var(index, &VariableType::Double),
+                    );
+                }
                 Inst::iload_0 | Inst::iload_1 | Inst::iload_2 | Inst::iload_3 => {
                     let name = (cur_code - Inst::iload_0) as usize;
                     let var = self.declare_local_var(name, &VariableType::Int);
@@ -897,6 +923,24 @@ impl JIT {
                 Inst::iload => {
                     let index = code[pc + 1] as usize;
                     let var = self.declare_local_var(index, &VariableType::Int);
+                    stack.push(LLVMBuildLoad(
+                        self.builder,
+                        var,
+                        CString::new("").unwrap().as_ptr(),
+                    ))
+                }
+                Inst::dload_0 | Inst::dload_1 | Inst::dload_2 | Inst::dload_3 => {
+                    let name = (cur_code - Inst::dload_0) as usize;
+                    let var = self.declare_local_var(name, &VariableType::Double);
+                    stack.push(LLVMBuildLoad(
+                        self.builder,
+                        var,
+                        CString::new("").unwrap().as_ptr(),
+                    ));
+                }
+                Inst::dload => {
+                    let index = code[pc + 1] as usize;
+                    let var = self.declare_local_var(index, &VariableType::Double);
                     stack.push(LLVMBuildLoad(
                         self.builder,
                         var,
@@ -924,23 +968,24 @@ impl JIT {
 
                     LLVMBuildCondBr(self.builder, cond_val, bb_then, bb_else);
                 }
-                Inst::ifne | Inst::ifeq => {
+                Inst::ifne | Inst::ifeq | Inst::ifle | Inst::ifge => {
                     let val = stack.pop().unwrap();
                     let cond_val = LLVMBuildICmp(
                         self.builder,
                         match cur_code {
                             Inst::ifeq => llvm::LLVMIntPredicate::LLVMIntEQ,
                             Inst::ifne => llvm::LLVMIntPredicate::LLVMIntNE,
+                            Inst::ifge => llvm::LLVMIntPredicate::LLVMIntSGE,
+                            Inst::ifle => llvm::LLVMIntPredicate::LLVMIntSLE,
                             _ => unreachable!(),
                         },
                         val,
-                        llvm_const_uint32(self.context, 0),
+                        llvm_const_int32(self.context, 0),
                         CString::new("icmp").unwrap().as_ptr(),
                     );
                     let destinations = block.kind.get_conditional_jump_destinations();
                     let bb_then = self.get_basic_block(destinations[0]).retrieve();
                     let bb_else = self.get_basic_block(destinations[1]).retrieve();
-
                     LLVMBuildCondBr(self.builder, cond_val, bb_then, bb_else);
                 }
                 Inst::goto => {
@@ -1004,6 +1049,37 @@ impl JIT {
                         CString::new("irem").unwrap().as_ptr(),
                     ));
                 }
+                Inst::dadd => {
+                    let val2 = stack.pop().unwrap();
+                    let val1 = stack.pop().unwrap();
+                    stack.push(LLVMBuildFAdd(
+                        self.builder,
+                        val1,
+                        val2,
+                        CString::new("dadd").unwrap().as_ptr(),
+                    ));
+                }
+                Inst::dsub => {
+                    let val2 = stack.pop().unwrap();
+                    let val1 = stack.pop().unwrap();
+                    stack.push(LLVMBuildFSub(
+                        self.builder,
+                        val1,
+                        val2,
+                        CString::new("dsub").unwrap().as_ptr(),
+                    ));
+                }
+                Inst::dmul => {
+                    let val2 = stack.pop().unwrap();
+                    let val1 = stack.pop().unwrap();
+                    stack.push(LLVMBuildFMul(
+                        self.builder,
+                        val1,
+                        val2,
+                        CString::new("dmul").unwrap().as_ptr(),
+                    ));
+                }
+                Inst::dcmpl | Inst::dcmpg => self.gen_dcmp(&mut stack)?,
                 Inst::bipush => {
                     stack.push(llvm_const_uint32(self.context, code[pc + 1] as i8 as u64));
                 }
@@ -1039,7 +1115,17 @@ impl JIT {
                         _ => return Err(Error::CouldntCompile),
                     };
                 }
-                Inst::ireturn if !loop_compile => {
+                Inst::ldc2_w => {
+                    let cur_class = &mut *self.cur_class.unwrap();
+                    let index = ((code[pc + 1] as usize) << 8) + code[pc + 2] as usize;
+                    match cur_class.classfile.constant_pool[index] {
+                        Constant::DoubleInfo { f } => {
+                            stack.push(llvm_const_double(self.context, f))
+                        }
+                        _ => return Err(Error::CouldntCompile),
+                    };
+                }
+                Inst::ireturn | Inst::dreturn if !loop_compile => {
                     let val = stack.pop().unwrap();
                     LLVMBuildRet(self.builder, val);
                 }
@@ -1191,11 +1277,12 @@ impl JIT {
                     let ret = LLVMBuildCall(
                         self.builder,
                         llvm_func,
-                        args.as_mut_slice().as_mut_ptr(),
+                        args.as_mut_ptr(),
                         args.len() as u32,
                         CString::new("").unwrap().as_ptr(),
                     );
-                    if LLVMGetTypeKind(LLVMGetReturnType(LLVMTypeOf(llvm_func)))
+
+                    if LLVMGetTypeKind(LLVMGetElementType(LLVMGetReturnType(LLVMTypeOf(llvm_func))))
                         != llvm::LLVMTypeKind::LLVMVoidTypeKind
                     {
                         stack.push(ret);
@@ -1211,6 +1298,52 @@ impl JIT {
         }
 
         Ok(stack)
+    }
+
+    #[rustfmt::skip]
+    unsafe fn gen_dcmp(&mut self, stack: &mut Vec<LLVMValueRef>) -> CResult<()> {
+        let func = self.cur_func.unwrap();
+        let v2 = stack.pop().unwrap();
+        let v1 = stack.pop().unwrap();
+        let name = CString::new("").unwrap().as_ptr();
+        let bb_merge = LLVMAppendBasicBlockInContext(self.context, func, name);
+
+        let cond1 = LLVMBuildFCmp(self.builder, llvm::LLVMRealPredicate::LLVMRealOGT, v1, v2, name);
+        let bb_then1 = LLVMAppendBasicBlockInContext(self.context, func, name);
+        let bb_else = LLVMAppendBasicBlockInContext(self.context, func, name);
+        LLVMBuildCondBr(self.builder, cond1, bb_then1, bb_else);
+        LLVMPositionBuilderAtEnd(self.builder, bb_then1);
+        LLVMBuildBr(self.builder, bb_merge);
+
+        LLVMPositionBuilderAtEnd(self.builder, bb_else);
+        let cond2 = LLVMBuildFCmp(self.builder, llvm::LLVMRealPredicate::LLVMRealOEQ, v1, v2, name);
+        let bb_then2 = LLVMAppendBasicBlockInContext(self.context, func, name);
+        let bb_else = LLVMAppendBasicBlockInContext(self.context, func, name);
+        LLVMBuildCondBr(self.builder, cond2, bb_then2, bb_else);
+        LLVMPositionBuilderAtEnd(self.builder, bb_then2);
+        LLVMBuildBr(self.builder, bb_merge);
+
+        LLVMPositionBuilderAtEnd(self.builder, bb_else);
+        let cond3 = LLVMBuildFCmp(self.builder, llvm::LLVMRealPredicate::LLVMRealOLT, v1, v2, name);
+        let bb_then3 = LLVMAppendBasicBlockInContext(self.context, func, name);
+        let bb_else = LLVMAppendBasicBlockInContext(self.context, func, name);
+        LLVMBuildCondBr(self.builder, cond3, bb_then3, bb_else);
+        LLVMPositionBuilderAtEnd(self.builder, bb_then3);
+        LLVMBuildBr(self.builder, bb_merge);
+
+        LLVMPositionBuilderAtEnd(self.builder, bb_else);
+        LLVMBuildBr(self.builder, bb_merge);
+
+        LLVMPositionBuilderAtEnd(self.builder, bb_merge);
+        let phi = LLVMBuildPhi(self.builder, VariableType::Int.to_llvmty(self.context), name);
+        LLVMAddIncoming(phi, vec![llvm_const_int32(self.context, 1)].as_mut_ptr(), vec![bb_then1].as_mut_ptr(), 1);
+        LLVMAddIncoming(phi, vec![llvm_const_int32(self.context, 0)].as_mut_ptr(), vec![bb_then2].as_mut_ptr(), 1);
+        LLVMAddIncoming(phi, vec![llvm_const_int32(self.context, (0-1) as u64)].as_mut_ptr(), vec![bb_then3].as_mut_ptr(), 1);
+        LLVMAddIncoming(phi, vec![llvm_const_int32(self.context, 0)].as_mut_ptr(), vec![bb_else].as_mut_ptr(), 1);
+
+        stack.push(phi);
+
+        Ok(())
     }
 
     unsafe fn declare_local_var(&mut self, name: usize, ty: &VariableType) -> LLVMValueRef {
@@ -1250,12 +1383,22 @@ impl JIT {
                     Inst::iload_0 | Inst::iload_1 | Inst::iload_2 | Inst::iload_3 => {
                         vars.insert((cur_code - Inst::iload_0) as usize, VariableType::Int);
                     }
+                    Inst::dload_0 | Inst::dload_1 | Inst::dload_2 | Inst::dload_3 => {
+                        vars.insert((cur_code - Inst::dload_0) as usize, VariableType::Double);
+                    }
                     Inst::istore_0 | Inst::istore_1 | Inst::istore_2 | Inst::istore_3 => {
                         vars.insert((cur_code - Inst::istore_0) as usize, VariableType::Int);
+                    }
+                    Inst::dstore_0 | Inst::dstore_1 | Inst::dstore_2 | Inst::dstore_3 => {
+                        vars.insert((cur_code - Inst::dstore_0) as usize, VariableType::Double);
                     }
                     Inst::istore | Inst::iload => {
                         let index = block.code[pc + 1] as usize;
                         vars.insert(index, VariableType::Int);
+                    }
+                    Inst::dstore | Inst::dload => {
+                        let index = block.code[pc + 1] as usize;
+                        vars.insert(index, VariableType::Double);
                     }
                     // TODO: Add
                     _ => {}
@@ -1367,6 +1510,10 @@ unsafe fn llvm_const_uint32(ctx: LLVMContextRef, n: u64) -> LLVMValueRef {
 
 unsafe fn llvm_const_uint64(ctx: LLVMContextRef, n: u64) -> LLVMValueRef {
     LLVMConstInt(LLVMInt64TypeInContext(ctx), n, 0)
+}
+
+unsafe fn llvm_const_double(ctx: LLVMContextRef, f: f64) -> LLVMValueRef {
+    LLVMConstReal(LLVMDoubleTypeInContext(ctx), f)
 }
 
 unsafe fn llvm_const_ptr(ctx: LLVMContextRef, p: *mut u64) -> LLVMValueRef {

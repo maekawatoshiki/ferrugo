@@ -928,7 +928,7 @@ impl VM {
 
         if !descriptor.ends_with(")V") {
             // Returns a value
-            frame.sp += if descriptor.ends_with(")D") || descriptor.ends_with(")D") {
+            frame.sp += if descriptor.ends_with(")D") || descriptor.ends_with(")J") {
                 2
             } else {
                 1
