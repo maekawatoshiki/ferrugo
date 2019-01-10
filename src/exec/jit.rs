@@ -391,12 +391,14 @@ impl JIT {
         (name_index, descriptor_index): (usize, usize),
         class: GcType<Class>,
         blocks: &mut Vec<Block>,
-        arg_types: &Vec<VariableType>,
+        descriptor: &str,
     ) -> CResult<FuncJITExecInfo> {
         self.cur_class = Some(class);
         self.cur_func_indices = Some((name_index, descriptor_index));
 
-        let ret_ty = self.infer_return_type(blocks)?;
+        let (arg_types, ret_ty) = self
+            .get_arg_return_ty(descriptor)
+            .ok_or(Error::CouldntCompile)?;
         let func_ret_ty = ret_ty.to_llvmty(self.context);
         let func_ty = LLVMFunctionType(
             func_ret_ty,
@@ -1231,21 +1233,38 @@ impl JIT {
         vars
     }
 
-    fn infer_return_type(&mut self, blocks: &Vec<Block>) -> CResult<VariableType> {
-        for block in blocks {
-            let mut pc = 0;
-            while pc < block.code.len() {
-                let cur_code = block.code[pc];
-                match cur_code {
-                    Inst::return_ => return Ok(VariableType::Void),
-                    Inst::ireturn => return Ok(VariableType::Int),
-                    // TODO: Add
-                    _ => {}
+    fn get_arg_return_ty(&self, descriptor: &str) -> Option<(Vec<VariableType>, VariableType)> {
+        // https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html#jvms-4.3.2
+        let mut i = 1;
+        let mut args_ty = vec![];
+        let mut ret_ty = None;
+        let mut args = true;
+        while i < descriptor.len() {
+            let c = descriptor.chars().nth(i).unwrap();
+            let ty = match c {
+                'L' => {
+                    while descriptor.chars().nth(i).unwrap() != ';' {
+                        i += 1
+                    }
+                    VariableType::Pointer
                 }
-                pc += Inst::get_inst_size(cur_code);
+                'I' => VariableType::Int,
+                'Z' => VariableType::Int,
+                ')' => {
+                    args = false;
+                    i += 1;
+                    continue;
+                }
+                _ => return None,
+            };
+            if args {
+                args_ty.push(ty)
+            } else {
+                ret_ty = Some(ty);
             }
+            i += 1;
         }
-        Err(Error::CouldntCompile)
+        Some((args_ty, ret_ty.unwrap()))
     }
 
     unsafe fn get_basic_block(&mut self, pc: usize) -> &mut BasicBlockInfo {

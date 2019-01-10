@@ -7,7 +7,7 @@ use super::super::gc::{gc, gc::GcType};
 use super::cfg::CFGMaker;
 use super::frame::{AType, Array, Frame, ObjectBody, Variable};
 use super::objectheap::ObjectHeap;
-use super::{jit, jit::VariableType, jit::JIT};
+use super::{jit, jit::JIT};
 use ansi_term::Colour;
 use rustc_hash::FxHashMap;
 
@@ -832,7 +832,7 @@ impl VM {
         let former_sp = frame!().sp as usize;
 
         if let Some(sp) = unsafe {
-            self.run_jit_compiled_func(&exec_method, former_sp, params_num, virtual_class)
+            self.run_jit_compiled_func(&exec_method, former_sp, descriptor.as_str(), virtual_class)
         } {
             frame!().sp = sp;
             return;
@@ -886,7 +886,7 @@ impl VM {
         &mut self,
         exec_method: &MethodInfo,
         sp: usize,
-        params_num: usize,
+        descriptor: &str,
         class: GcType<Class>,
     ) -> Option<usize> {
         let jit_info_mgr = (&mut *class).get_jit_info_mgr(
@@ -912,19 +912,6 @@ impl VM {
                     _ => panic!(),
                 };
                 let mut blocks = CFGMaker::new().make(&code, 0, code.len());
-                let mut arg_types = vec![];
-
-                for i in self.bp + sp - params_num..self.bp + sp {
-                    match self.stack[i] {
-                        Variable::Char(_) | Variable::Short(_) | Variable::Int(_) => {
-                            arg_types.push(VariableType::Int)
-                        }
-                        _ => {
-                            *none = Some(jit::FuncJITExecInfo::cant_compile());
-                            return None;
-                        }
-                    }
-                }
 
                 match self.jit.compile_func(
                     (
@@ -933,7 +920,7 @@ impl VM {
                     ),
                     class,
                     &mut blocks,
-                    &arg_types,
+                    descriptor,
                 ) {
                     Ok(exec_info) => {
                         *none = Some(exec_info.clone());
