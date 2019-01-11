@@ -121,8 +121,8 @@ class Hello {
     Teacher eng = new Teacher("uint256_t", "English");
     eng.show();
     
-    for (int i = 1; i <= 1000000; i++) {
-      if (is_prime(i)) System.out.println(i + " is prime");
+    for (int i = 1; i < 500000; i++) {
+      if (is_prime(i)) System.out.println(i);
     }
     
     int arr[] = new int[8];
@@ -136,19 +136,12 @@ class Hello {
     people[0].show();
     people[1] = new Person("david");
     people[1].show();
-
+    
     double x_max = 2, x_min = -2, y_max = 1, y_min = -1, dx = 0.03, dy = 0.045;
     for (double y = y_max; y > y_min; y -= dy) {
       for (double x = x_min; x < x_max; x += dx) {
         double t = mandelbrot(x, y, 300);
-        if (t > 8) 
-          System.out.print("#");
-        else if (t > 6) 
-          System.out.print("*");
-        else if (t > 4) 
-          System.out.print(".");
-        else 
-          System.out.print(" ");
+        System.out.print(t > 8 ? "#" : t > 6 ? "*" : t > 4 ? "." : " ");
       }
       System.out.println("");
     }

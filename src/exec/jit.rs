@@ -361,6 +361,8 @@ impl JIT {
 
         for (offset, _ty) in &exec_info.local_variables {
             raw_local_vars.push(match stack[bp + offset] {
+                Variable::Char(i) => Box::into_raw(Box::new(i as i32)) as *mut libc::c_void,
+                Variable::Short(i) => Box::into_raw(Box::new(i as i32)) as *mut libc::c_void,
                 Variable::Int(i) => Box::into_raw(Box::new(i)) as *mut libc::c_void,
                 Variable::Double(f) => Box::into_raw(Box::new(f)) as *mut libc::c_void,
                 _ => return None,
@@ -747,7 +749,7 @@ impl JIT {
         let init_size = stack.len();
 
         if let Some(phi_stacks) = self.phi_stack.get(&start) {
-            // Firstly, build llvm's phi which needs a type of all conceivavle values.
+            // Firstly, build llvm's phi which needs a type of all conceivable values.
             let src_bb = phi_stacks[0].src_bb;
             for val in &phi_stacks[0].stack {
                 let phi = LLVMBuildPhi(
@@ -755,12 +757,7 @@ impl JIT {
                     LLVMTypeOf(*val),
                     CString::new("").unwrap().as_ptr(),
                 );
-                LLVMAddIncoming(
-                    phi,
-                    vec![*val].as_mut_slice().as_mut_ptr(),
-                    vec![src_bb].as_mut_slice().as_mut_ptr(),
-                    1,
-                );
+                LLVMAddIncoming(phi, vec![*val].as_mut_ptr(), vec![src_bb].as_mut_ptr(), 1);
                 stack.push(phi);
             }
 
@@ -768,12 +765,7 @@ impl JIT {
                 let src_bb = phi_stack.src_bb;
                 for (i, val) in (&phi_stack.stack).iter().enumerate() {
                     let phi = stack[init_size + i];
-                    LLVMAddIncoming(
-                        phi,
-                        vec![*val].as_mut_slice().as_mut_ptr(),
-                        vec![src_bb].as_mut_slice().as_mut_ptr(),
-                        1,
-                    );
+                    LLVMAddIncoming(phi, vec![*val].as_mut_ptr(), vec![src_bb].as_mut_ptr(), 1);
                 }
             }
         }
@@ -823,10 +815,7 @@ impl JIT {
                     };
                     // TODO: All ``d`` must be the same
                 }
-                match find(d, blocks) {
-                    Some(i) => self.compile_block(blocks, i, vec![], loop_compile),
-                    None => Ok(0),
-                }
+                Ok(d)
             }
             BrKind::UnconditionalJmp { destination } => {
                 let src_bb = self.get_basic_block(block!().start).retrieve();
@@ -838,15 +827,13 @@ impl JIT {
             }
             BrKind::JmpRequired { destination } => {
                 let src_bb = self.get_basic_block(block!().start).retrieve();
-                let bb = self
-                    .get_basic_block(destination)
-                    .set_positioned()
-                    .retrieve();
-
                 if cur_bb_has_no_terminator(self.builder) {
+                    let bb = self
+                        .get_basic_block(destination)
+                        .set_positioned()
+                        .retrieve();
                     LLVMBuildBr(self.builder, bb);
                 }
-
                 self.phi_stack
                     .entry(destination)
                     .or_insert(vec![])
@@ -1081,11 +1068,11 @@ impl JIT {
                 }
                 Inst::dcmpl | Inst::dcmpg => self.gen_dcmp(&mut stack)?,
                 Inst::bipush => {
-                    stack.push(llvm_const_uint32(self.context, code[pc + 1] as i8 as u64));
+                    stack.push(llvm_const_int32(self.context, code[pc + 1] as i8 as u64));
                 }
                 Inst::sipush => {
                     let val = ((code[pc + 1] as i16) << 8) + code[pc + 2] as i16;
-                    stack.push(llvm_const_uint32(self.context, val as u64));
+                    stack.push(llvm_const_int32(self.context, val as u64));
                 }
                 Inst::ldc => {
                     let cur_class = &mut *self.cur_class.unwrap();
@@ -1305,28 +1292,27 @@ impl JIT {
         let func = self.cur_func.unwrap();
         let v2 = stack.pop().unwrap();
         let v1 = stack.pop().unwrap();
-        let name = CString::new("").unwrap().as_ptr();
-        let bb_merge = LLVMAppendBasicBlockInContext(self.context, func, name);
+        let bb_merge = LLVMAppendBasicBlockInContext(self.context, func, CString::new("").unwrap().as_ptr());
 
-        let cond1 = LLVMBuildFCmp(self.builder, llvm::LLVMRealPredicate::LLVMRealOGT, v1, v2, name);
-        let bb_then1 = LLVMAppendBasicBlockInContext(self.context, func, name);
-        let bb_else = LLVMAppendBasicBlockInContext(self.context, func, name);
+        let cond1 = LLVMBuildFCmp(self.builder, llvm::LLVMRealPredicate::LLVMRealOGT, v1, v2, CString::new("").unwrap().as_ptr());
+        let bb_then1 = LLVMAppendBasicBlockInContext(self.context, func, CString::new("").unwrap().as_ptr());
+        let bb_else = LLVMAppendBasicBlockInContext(self.context, func, CString::new("").unwrap().as_ptr());
         LLVMBuildCondBr(self.builder, cond1, bb_then1, bb_else);
         LLVMPositionBuilderAtEnd(self.builder, bb_then1);
         LLVMBuildBr(self.builder, bb_merge);
 
         LLVMPositionBuilderAtEnd(self.builder, bb_else);
-        let cond2 = LLVMBuildFCmp(self.builder, llvm::LLVMRealPredicate::LLVMRealOEQ, v1, v2, name);
-        let bb_then2 = LLVMAppendBasicBlockInContext(self.context, func, name);
-        let bb_else = LLVMAppendBasicBlockInContext(self.context, func, name);
+        let cond2 = LLVMBuildFCmp(self.builder, llvm::LLVMRealPredicate::LLVMRealOEQ, v1, v2, CString::new("").unwrap().as_ptr());
+        let bb_then2 = LLVMAppendBasicBlockInContext(self.context, func, CString::new("").unwrap().as_ptr());
+        let bb_else = LLVMAppendBasicBlockInContext(self.context, func, CString::new("").unwrap().as_ptr());
         LLVMBuildCondBr(self.builder, cond2, bb_then2, bb_else);
         LLVMPositionBuilderAtEnd(self.builder, bb_then2);
         LLVMBuildBr(self.builder, bb_merge);
 
         LLVMPositionBuilderAtEnd(self.builder, bb_else);
-        let cond3 = LLVMBuildFCmp(self.builder, llvm::LLVMRealPredicate::LLVMRealOLT, v1, v2, name);
-        let bb_then3 = LLVMAppendBasicBlockInContext(self.context, func, name);
-        let bb_else = LLVMAppendBasicBlockInContext(self.context, func, name);
+        let cond3 = LLVMBuildFCmp(self.builder, llvm::LLVMRealPredicate::LLVMRealOLT, v1, v2, CString::new("").unwrap().as_ptr());
+        let bb_then3 = LLVMAppendBasicBlockInContext(self.context, func, CString::new("").unwrap().as_ptr());
+        let bb_else = LLVMAppendBasicBlockInContext(self.context, func, CString::new("").unwrap().as_ptr());
         LLVMBuildCondBr(self.builder, cond3, bb_then3, bb_else);
         LLVMPositionBuilderAtEnd(self.builder, bb_then3);
         LLVMBuildBr(self.builder, bb_merge);
@@ -1335,11 +1321,11 @@ impl JIT {
         LLVMBuildBr(self.builder, bb_merge);
 
         LLVMPositionBuilderAtEnd(self.builder, bb_merge);
-        let phi = LLVMBuildPhi(self.builder, VariableType::Int.to_llvmty(self.context), name);
+        let phi = LLVMBuildPhi(self.builder, VariableType::Int.to_llvmty(self.context), CString::new("").unwrap().as_ptr());
         LLVMAddIncoming(phi, vec![llvm_const_int32(self.context, 1)].as_mut_ptr(), vec![bb_then1].as_mut_ptr(), 1);
         LLVMAddIncoming(phi, vec![llvm_const_int32(self.context, 0)].as_mut_ptr(), vec![bb_then2].as_mut_ptr(), 1);
         LLVMAddIncoming(phi, vec![llvm_const_int32(self.context, (0-1) as u64)].as_mut_ptr(), vec![bb_then3].as_mut_ptr(), 1);
-        LLVMAddIncoming(phi, vec![llvm_const_int32(self.context, 0)].as_mut_ptr(), vec![bb_else].as_mut_ptr(), 1);
+        LLVMAddIncoming(phi, vec![llvm_const_int32(self.context, 0)].as_mut_ptr(), vec![bb_else].as_mut_ptr(), 1); // TODO
 
         stack.push(phi);
 
