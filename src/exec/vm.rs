@@ -1009,6 +1009,8 @@ impl VM {
         let size = self.stack[self.bp + frame.sp - 1].get_int() as usize;
         self.stack[self.bp + frame.sp - 1] =
             unsafe { &mut *self.objectheap }.create_array(atype, size);
+
+        gc::mark_and_sweep(self);
     }
 
     fn run_new_obj_array(&mut self) {
