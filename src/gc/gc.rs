@@ -1,7 +1,8 @@
 // TODO: CAUTION: Am I doing wrong thing?
 
+use super::super::class::class::Class;
 use super::super::exec::{
-    frame::{Array, Frame, Variable},
+    frame::{Array, Frame, ObjectBody, Variable},
     vm::VM,
 };
 use rustc_hash::FxHashMap;
@@ -56,14 +57,11 @@ impl GcTargetInfo {
 }
 
 pub fn new<T>(val: T) -> GcType<T> {
-    let data_size = mem::size_of_val(&val);
     let ptr = Box::into_raw(Box::new(val));
-    ALLOCATED_MEM_SIZE_BYTE.fetch_add(data_size, Ordering::SeqCst);
+    let info = GcTargetInfo::new_unmarked(unsafe { std::intrinsics::type_name::<T>() });
+    ALLOCATED_MEM_SIZE_BYTE.fetch_add(get_size(ptr as *mut u64, &info), Ordering::SeqCst);
     GC_MEM.with(|m| {
-        m.borrow_mut().insert(
-            ptr as *mut u64,
-            GcTargetInfo::new_unmarked(unsafe { std::intrinsics::type_name::<T>() }),
-        );
+        m.borrow_mut().insert(ptr as *mut u64, info);
     });
     ptr
 }
@@ -80,7 +78,6 @@ pub fn mark_and_sweep(vm: &VM) {
     let mut m = GcStateMap::default();
     trace(&vm, &mut m);
     free(&m);
-    println!("freed");
 }
 
 fn trace(vm: &VM, m: &mut GcStateMap) {
@@ -104,7 +101,6 @@ fn free(m: &GcStateMap) {
                 .unwrap_or(false);
             if !is_marked {
                 let released_size = free_ptr(*p, info);
-                println!("freed: {}bytes", released_size);
                 ALLOCATED_MEM_SIZE_BYTE.fetch_sub(released_size, Ordering::SeqCst);
             }
             is_marked
@@ -113,7 +109,9 @@ fn free(m: &GcStateMap) {
 }
 
 impl Frame {
-    fn trace(&self, _m: &mut GcStateMap) {}
+    fn trace(&self, m: &mut GcStateMap) {
+        unsafe { &*self.class.unwrap() }.trace(m);
+    }
 }
 
 impl Variable {
@@ -122,6 +120,12 @@ impl Variable {
             Variable::Pointer(ptr) => trace_ptr(*ptr, m),
             _ => {}
         }
+    }
+}
+
+impl Class {
+    fn trace(&self, m: &mut GcStateMap) {
+        self.static_variables.iter().for_each(|(_, v)| v.trace(m));
     }
 }
 
@@ -134,24 +138,56 @@ fn trace_ptr(ptr: *mut u64, m: &mut GcStateMap) {
             .unwrap_or(&GcTargetInfo::new_unmarked("unknown"))
             .clone()
     });
+
     match info.ty {
         GcTargetType::Array => {
-            m.insert(ptr, {
-                info.state = GcState::Marked;
-                info
-            });
+            let ary = unsafe { &*(ptr as *mut Array) };
+            ary.elements.iter().for_each(|v| v.trace(m));
         }
-        GcTargetType::Object => {}
-        GcTargetType::Class => {}
-        GcTargetType::Unknown => {}
-    }
+        GcTargetType::Object => {
+            let obj = unsafe { &*(ptr as *mut ObjectBody) };
+            obj.class.trace(m);
+            obj.variables.iter().for_each(|(_, v)| v.trace(m));
+        }
+        GcTargetType::Class => {
+            let class = unsafe { &*(ptr as *mut Class) };
+            class.trace(m);
+        }
+        GcTargetType::Unknown => panic!(),
+    };
+
+    m.insert(ptr, {
+        info.state = GcState::Marked;
+        info
+    });
 }
 
 fn free_ptr(ptr: *mut u64, info: &GcTargetInfo) -> usize {
     match info.ty {
         GcTargetType::Array => mem::size_of_val(&*unsafe { Box::from_raw(ptr as *mut Array) }),
-        GcTargetType::Object => 0,
-        GcTargetType::Class => 0,
+        GcTargetType::Object => {
+            mem::size_of_val(&*unsafe { Box::from_raw(ptr as *mut ObjectBody) })
+        }
+        GcTargetType::Class => mem::size_of_val(&*unsafe { Box::from_raw(ptr as *mut Class) }),
+        GcTargetType::Unknown => 0,
+    }
+}
+
+// TODO: How can we get the size of Vec or something in bytes?
+fn get_size(ptr: *mut u64, info: &GcTargetInfo) -> usize {
+    match info.ty {
+        GcTargetType::Array => {
+            let ary = unsafe { &*(ptr as *mut Array) };
+            ary.elements.len() * 4
+        }
+        GcTargetType::Object => {
+            let obj = unsafe { &*(ptr as *mut ObjectBody) };
+            obj.variables.len() * 4
+        }
+        GcTargetType::Class => {
+            let class = unsafe { &*(ptr as *mut Class) };
+            class.static_variables.len() * 4
+        }
         GcTargetType::Unknown => 0,
     }
 }
