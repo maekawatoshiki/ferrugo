@@ -348,6 +348,8 @@ impl JIT {
             VariableType::Void => {}
         }
 
+        LLVMDeleteFunction(func);
+
         Some(sp)
     }
 
@@ -544,6 +546,7 @@ impl JIT {
         );
 
         if let Err(e) = compiling_error {
+            LLVMDeleteFunction(func);
             return Err(e);
         }
 
@@ -710,6 +713,7 @@ impl JIT {
         );
 
         if let Err(e) = compiling_error {
+            LLVMDeleteFunction(func);
             return Err(e);
         }
 

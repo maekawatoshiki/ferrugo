@@ -1,5 +1,3 @@
-use ansi_term;
-
 #[macro_export]
 macro_rules! dprintln {
     ($($arg:tt)*) => {
