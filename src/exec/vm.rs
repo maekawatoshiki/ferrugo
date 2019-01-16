@@ -1268,77 +1268,21 @@ pub mod Inst {
     pub const anewarray:    u8 = 189;
     pub const monitorenter: u8 = 194;
     // pub const ifnonnull:    u8 = 199;
-
+    
     pub fn get_inst_size(inst: Code) -> usize {
         match inst {
-            iconst_m1
-                | iconst_0
-                | iconst_1
-                | iconst_2
-                | iconst_3
-                | iconst_4
-                | iconst_5 => 1,
-                dconst_0 | dconst_1 => 1,
-                dstore =>2, 
-                astore =>2, 
-                istore =>2, 
-                istore_0 | istore_1 | istore_2 | istore_3 => 1,
-                iload_0 | iload_1 | iload_2 | iload_3 => 1,
-                dload_0 | dload_1 | dload_2 | dload_3 => 1,
-                iaload =>1, 
-                aaload =>1, 
-                sipush => 3,
-                ldc => 2,
-                ldc2_w => 3,
-                aload =>2, 
-                dload =>2, 
-                iload =>2, 
-                aload_0 | aload_1 | aload_2 | aload_3 => 1,
-                dstore_0 | dstore_1 | dstore_2 | dstore_3 => 1,
-                astore_0 | astore_1 | astore_2 | astore_3 => 1,
-                iastore => 1,
-                aastore => 1,
-                bipush => 2,
-                iadd =>1, 
-                dadd =>1, 
-                isub =>1, 
-                dsub =>1, 
-                imul =>1, 
-                dmul =>1, 
-                ddiv =>1, 
-                irem =>1, 
-                dneg => 1,
-                iand => 1,
-                iinc => 3,
-                i2d => 1,
-                i2s => 1,
-                invokestatic => 3,
-                invokespecial => 3,
-                invokevirtual => 3,
-                new => 3,
-                newarray => 2,
-                anewarray => 3,
-                pop | pop2 => 1,
-                dup => 1,
-                goto => 3,
-                dcmpl => 1,
-                dcmpg => 1,
-                ifeq => 3,
-                ifne => 3,
-                ifle => 3,
-                ifge => 3,
-                if_icmpne =>3, 
-                if_icmpge =>3, 
-                if_icmpgt =>3, 
-                ireturn =>1, 
-                dreturn =>1, 
-                return_ =>1, 
-                getstatic =>3, 
-                putstatic =>3, 
-                getfield =>3, 
-                putfield =>3, 
-                monitorenter => 1,
-                e => unimplemented!("{}", e),
+            iconst_m1 | iconst_0 | iconst_1 | iconst_2 | iconst_3 | iconst_4 | iconst_5 | dconst_0
+                | dconst_1 | istore_0 | istore_1 | istore_2 | istore_3 | iload_0 | iload_1 | iload_2
+                | iload_3 | dload_0 | dload_1 | dload_2 | dload_3 | aload_0 | aload_1 | aload_2
+                | aload_3 | dstore_0 | dstore_1 | dstore_2 | dstore_3 | astore_0 | astore_1 | astore_2
+                | astore_3 | iaload | aaload | iastore | aastore | iadd | isub | imul | irem | iand
+                | dadd | dsub | dmul | ddiv | dneg | i2d | i2s | pop | pop2 | dcmpl | dcmpg | dup
+                | ireturn | dreturn | return_ | monitorenter => 1,
+            dstore | astore | istore | ldc | aload | dload | iload | bipush | newarray => 2,
+            sipush | ldc2_w | iinc | invokestatic | invokespecial | invokevirtual | new | anewarray
+                | goto | ifeq | ifne | ifle | ifge | if_icmpne | if_icmpge | if_icmpgt | getstatic
+                | putstatic | getfield | putfield => 3,
+            e => unimplemented!("{}", e),
         }
     }
 }
