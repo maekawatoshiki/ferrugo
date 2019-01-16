@@ -95,6 +95,10 @@ class Hello {
     
     System.out.println(123);
     System.out.println(123456789);
+    {
+      int x = 10, y = 7;
+      System.out.println(x + " & " + y + " = " + (x & y));
+    }
     System.out.println(calc_pi());
     
     char a = 'a';

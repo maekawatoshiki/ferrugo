@@ -385,6 +385,14 @@ impl VM {
                         Variable::Double(-self.stack[self.bp + frame.sp - 2].get_double());
                     frame.pc += 1;
                 }
+                Inst::iand => {
+                    self.stack[self.bp + frame.sp - 2] = Variable::Int(
+                        self.stack[self.bp + frame.sp - 2].get_int()
+                            & self.stack[self.bp + frame.sp - 1].get_int(),
+                    );
+                    frame.sp -= 1;
+                    frame.pc += 1;
+                }
                 Inst::iinc => {
                     let index = code[frame.pc + 1] as usize;
                     let const_ = code[frame.pc + 2];
@@ -1231,6 +1239,7 @@ pub mod Inst {
     pub const ddiv:         u8 = 111;
     pub const irem:         u8 = 112;
     pub const dneg:         u8 = 119;
+    pub const iand:         u8 = 126;
     pub const iinc:         u8 = 132;
     pub const i2d:          u8 = 135;
     pub const i2s:          u8 = 147;
@@ -1299,6 +1308,7 @@ pub mod Inst {
                 ddiv =>1, 
                 irem =>1, 
                 dneg => 1,
+                iand => 1,
                 iinc => 3,
                 i2d => 1,
                 i2s => 1,

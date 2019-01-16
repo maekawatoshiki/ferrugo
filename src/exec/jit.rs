@@ -552,20 +552,6 @@ impl JIT {
 
         LLVMRunPassManager(self.pass_mgr, self.module);
 
-        // TODO: Is this REALLY right way???
-        let mut ee = 0 as llvm::execution_engine::LLVMExecutionEngineRef;
-        let mut error = 0 as *mut i8;
-        if llvm::execution_engine::LLVMCreateExecutionEngineForModule(
-            &mut ee,
-            self.module,
-            &mut error,
-        ) != 0
-        {
-            panic!("llvm error: failed to initialize execute engine")
-        }
-
-        self.add_native_functions(ee);
-
         Ok(FuncJITExecInfo {
             func,
             cant_compile: false,
