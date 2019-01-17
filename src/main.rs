@@ -1,6 +1,5 @@
 #[macro_use]
 extern crate ferrugo;
-use ferrugo::class::classfile::attribute::Attribute;
 use ferrugo::class::classheap;
 use ferrugo::exec::objectheap::ObjectHeap;
 use ferrugo::exec::vm::{load_class_with_filename, VM};
@@ -56,13 +55,7 @@ fn run_file(filename: &str) {
     vm.stack[0] = object;
     vm.frame_stack[0].class = Some(class);
     vm.frame_stack[0].method_info = method;
-    vm.frame_stack[0].sp = if let Some(Attribute::Code { max_locals, .. }) =
-        vm.frame_stack[0].method_info.get_code_attribute()
-    {
-        *max_locals as usize
-    } else {
-        panic!()
-    };
+    vm.frame_stack[0].sp = vm.frame_stack[0].method_info.code.as_ref().unwrap().max_locals as usize;
 
     dprintln!("---- exec output begin ----");
     vm.run();

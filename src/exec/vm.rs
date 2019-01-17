@@ -1,5 +1,4 @@
 use super::super::class::class::Class;
-use super::super::class::classfile::attribute::Attribute;
 use super::super::class::classfile::constant::Constant;
 use super::super::class::classfile::{method, method::MethodInfo};
 use super::super::class::classheap::ClassHeap;
@@ -74,8 +73,10 @@ impl VM {
 
         let frame = frame!();
 
-        if frame.method_info.access_flags & 0x0100 > 0 {
-            // ACC_NATIVE
+        if frame
+            .method_info
+            .check_access_flags(method::access_flags::ACC_PACC_NATIVE)
+        {
             self.run_native_method();
             return 0;
         }
@@ -85,12 +86,7 @@ impl VM {
             frame.method_info.descriptor_index as usize,
         );
 
-        let code =
-            if let Some(Attribute::Code { code, .. }) = frame.method_info.get_code_attribute() {
-                code.clone()
-            } else {
-                panic!()
-            };
+        let code = frame.method_info.code.as_ref().unwrap().code.clone();
 
         macro_rules! loop_jit {
             ($frame:expr, $do_compile:expr, $start:expr, $end:expr, $failed:expr) => {
@@ -684,11 +680,9 @@ impl VM {
 
         let frame = frame!();
         let frame_class = unsafe { &*frame.class.unwrap() };
-        let index = match frame.method_info.get_code_attribute() {
-            Some(Attribute::Code { code, .. }) => {
-                ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
-            }
-            _ => panic!(),
+        let index = {
+            let code = &frame.method_info.code.as_ref().unwrap().code;
+            ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
         };
         frame.pc += 3;
 
@@ -722,11 +716,9 @@ impl VM {
 
         let frame = frame!();
         let frame_class = unsafe { &*frame.class.unwrap() };
-        let index = match frame.method_info.get_code_attribute() {
-            Some(Attribute::Code { code, .. }) => {
-                ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
-            }
-            _ => panic!(),
+        let index = {
+            let code = &frame.method_info.code.as_ref().unwrap().code;
+            ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
         };
         frame.pc += 3;
 
@@ -758,11 +750,9 @@ impl VM {
 
         let frame = frame!();
         let frame_class = unsafe { &*frame.class.unwrap() };
-        let index = match frame.method_info.get_code_attribute() {
-            Some(Attribute::Code { code, .. }) => {
-                ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
-            }
-            _ => panic!(),
+        let index = {
+            let code = &frame.method_info.code.as_ref().unwrap().code;
+            ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
         };
         frame.pc += 3;
 
@@ -806,11 +796,9 @@ impl VM {
 
         let frame = frame!();
         let frame_class = unsafe { &*frame.class.unwrap() };
-        let index = match frame.method_info.get_code_attribute() {
-            Some(Attribute::Code { code, .. }) => {
-                ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
-            }
-            _ => panic!(),
+        let index = {
+            let code = &frame.method_info.code.as_ref().unwrap().code;
+            ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
         };
         frame.pc += 3;
 
@@ -853,12 +841,8 @@ impl VM {
         let frame_class = unsafe { &*frame!().class.unwrap() };
         let mref_index = {
             let frame = frame!();
-            match frame.method_info.get_code_attribute() {
-                Some(Attribute::Code { code, .. }) => {
-                    ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
-                }
-                _ => panic!(),
-            }
+            let code = &frame.method_info.code.as_ref().unwrap().code;
+            ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
         };
         frame!().pc += 3;
 
@@ -919,12 +903,8 @@ impl VM {
         if frame.method_info.access_flags & 0x0100 > 0 {
             // method_info.access_flags & ACC_NATIVE => do not add max_locals
         } else {
-            if let Some(Attribute::Code { max_locals, .. }) = frame.method_info.get_code_attribute()
-            {
-                sp_start += *max_locals as usize;
-            } else {
-                panic!()
-            };
+            let max_locals = frame.method_info.code.as_ref().unwrap().max_locals;
+            sp_start += max_locals as usize;
         }
 
         frame.sp = sp_start;
@@ -976,10 +956,7 @@ impl VM {
             Some(exec_info) if exec_info.cant_compile => return None,
             Some(exec_info) => exec_info.clone(),
             none => {
-                let code = match exec_method.get_code_attribute() {
-                    Some(Attribute::Code { code, .. }) => code,
-                    _ => panic!(),
-                };
+                let code = exec_method.code.clone().unwrap().code;
                 let mut blocks = CFGMaker::new().make(&code, 0, code.len());
 
                 match self.jit.compile_func(
@@ -1012,12 +989,10 @@ impl VM {
 
     fn run_new_array(&mut self) {
         let frame = self.frame_stack.last_mut().unwrap();
-        let atype = match frame.method_info.get_code_attribute() {
-            Some(Attribute::Code { code, .. }) => {
-                let atype = code[frame.pc + 1] as usize;
-                AType::to_atype(atype)
-            }
-            _ => panic!(),
+        let atype = {
+            let code = &frame.method_info.code.as_ref().unwrap().code;
+            let atype = code[frame.pc + 1] as usize;
+            AType::to_atype(atype)
         };
         frame.pc += 2;
 
@@ -1031,11 +1006,9 @@ impl VM {
     fn run_new_obj_array(&mut self) {
         let frame = self.frame_stack.last_mut().unwrap();
         let frame_class = unsafe { &*frame.class.unwrap() };
-        let class_index = match frame.method_info.get_code_attribute() {
-            Some(Attribute::Code { code, .. }) => {
-                ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
-            }
-            _ => panic!(),
+        let class_index = {
+            let code = &frame.method_info.code.as_ref().unwrap().code;
+            ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
         };
         frame.pc += 3;
 
@@ -1060,11 +1033,9 @@ impl VM {
 
         let frame = frame!();
         let frame_class = unsafe { &*frame.class.unwrap() };
-        let class_index = match frame.method_info.get_code_attribute() {
-            Some(Attribute::Code { code, .. }) => {
-                ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
-            }
-            _ => panic!(),
+        let class_index = {
+            let code = &frame.method_info.code.as_ref().unwrap().code;
+            ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
         };
         frame.pc += 3;
 
@@ -1140,13 +1111,12 @@ pub fn load_class_with_filename(
     vm.stack[0] = object;
     vm.frame_stack[0].class = Some(class);
     vm.frame_stack[0].method_info = method;
-    vm.frame_stack[0].sp = if let Some(Attribute::Code { max_locals, .. }) =
-        vm.frame_stack[0].method_info.get_code_attribute()
-    {
-        *max_locals as usize
-    } else {
-        panic!()
-    };
+    vm.frame_stack[0].sp = vm.frame_stack[0]
+        .method_info
+        .code
+        .as_ref()
+        .unwrap()
+        .max_locals as usize;
 
     vm.run();
 
@@ -1155,13 +1125,12 @@ pub fn load_class_with_filename(
         vm.frame_stack[0].pc = 0;
         vm.frame_stack[0].class = Some(class);
         vm.frame_stack[0].method_info = method;
-        vm.frame_stack[0].sp = if let Some(Attribute::Code { max_locals, .. }) =
-            vm.frame_stack[0].method_info.get_code_attribute()
-        {
-            *max_locals as usize
-        } else {
-            panic!()
-        };
+        vm.frame_stack[0].sp = vm.frame_stack[0]
+            .method_info
+            .code
+            .as_ref()
+            .unwrap()
+            .max_locals as usize;
 
         vm.run();
     }

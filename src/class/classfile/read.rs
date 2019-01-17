@@ -1,5 +1,5 @@
 use super::attribute::{
-    Annotation, Attribute, AttributeInfo, ElementValue, ElementValuePair, Exception,
+    Annotation, Attribute, AttributeInfo, CodeAttribute, ElementValue, ElementValuePair, Exception,
     InnerClassesBody, LineNumber, StackMapFrame, StackMapFrameBody, VerificationTypeInfo,
 };
 use super::classfile::ClassFile;
@@ -304,8 +304,13 @@ impl ClassFileReader {
         let descriptor_index = self.read_u16()?;
         let attributes_count = self.read_u16()?;
         let mut attributes = vec![];
+        let mut code = None;
         for _ in 0..attributes_count {
-            attributes.push(self.read_attribute_info(constant_pool)?)
+            let attr = self.read_attribute_info(constant_pool)?;
+            if let Attribute::Code(ref c) = attr.info {
+                code = Some(c.clone())
+            }
+            attributes.push(attr)
         }
         Some(MethodInfo {
             access_flags,
@@ -313,6 +318,7 @@ impl ClassFileReader {
             descriptor_index,
             attributes_count,
             attributes,
+            code,
         })
     }
 }
@@ -362,7 +368,7 @@ impl ClassFileReader {
         for _ in 0..attributes_count {
             attributes.push(self.read_attribute_info(constant_pool)?)
         }
-        Some(Attribute::Code {
+        Some(Attribute::Code(CodeAttribute {
             max_stack,
             max_locals,
             code_length,
@@ -371,7 +377,7 @@ impl ClassFileReader {
             exception_table,
             attributes_count,
             attributes,
-        })
+        }))
     }
 
     fn read_line_number_table_attribute(&mut self) -> Option<Attribute> {

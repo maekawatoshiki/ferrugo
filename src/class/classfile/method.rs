@@ -1,4 +1,4 @@
-use super::attribute::{Attribute, AttributeInfo};
+use super::attribute::{AttributeInfo, CodeAttribute};
 
 #[derive(Clone, Debug)]
 pub struct MethodInfo {
@@ -7,6 +7,7 @@ pub struct MethodInfo {
     pub descriptor_index: u16,
     pub attributes_count: u16,
     pub attributes: Vec<AttributeInfo>,
+    pub code: Option<CodeAttribute>,
 }
 
 impl MethodInfo {
@@ -17,17 +18,8 @@ impl MethodInfo {
             descriptor_index: 0,
             attributes_count: 0,
             attributes: vec![],
+            code: None,
         }
-    }
-
-    pub fn get_code_attribute(&self) -> Option<&Attribute> {
-        for i in 0..self.attributes_count as usize {
-            match self.attributes[i].info {
-                Attribute::Code { .. } => return Some(&self.attributes[i].info),
-                _ => {}
-            };
-        }
-        None
     }
 
     pub fn check_access_flags(&self, flag: u16) -> bool {

@@ -422,15 +422,15 @@ impl JIT {
 
         when_debug!(LLVMDumpValue(func));
 
-        llvm::analysis::LLVMVerifyFunction(
-            func,
-            llvm::analysis::LLVMVerifierFailureAction::LLVMAbortProcessAction,
-        );
-
         if let Err(e) = compiling_error {
             LLVMDeleteFunction(func);
             return Err(e);
         }
+
+        llvm::analysis::LLVMVerifyFunction(
+            func,
+            llvm::analysis::LLVMVerifierFailureAction::LLVMAbortProcessAction,
+        );
 
         LLVMRunPassManager(self.pass_mgr, self.module);
 

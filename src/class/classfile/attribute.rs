@@ -6,17 +6,20 @@ pub struct AttributeInfo {
 }
 
 #[derive(Debug, Clone)]
+pub struct CodeAttribute {
+    pub max_stack: u16,
+    pub max_locals: u16,
+    pub code_length: u32,
+    pub code: Vec<u8>,
+    pub exception_table_length: u16,
+    pub exception_table: Vec<Exception>,
+    pub attributes_count: u16,
+    pub attributes: Vec<AttributeInfo>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Attribute {
-    Code {
-        max_stack: u16,
-        max_locals: u16,
-        code_length: u32,
-        code: Vec<u8>,
-        exception_table_length: u16,
-        exception_table: Vec<Exception>,
-        attributes_count: u16,
-        attributes: Vec<AttributeInfo>,
-    },
+    Code(CodeAttribute),
     LineNumberTable {
         line_number_table_length: u16,
         line_number_table: Vec<LineNumber>,
