@@ -223,7 +223,10 @@ impl JIT {
                 stack[bp + sp] = Variable::Double(transmute::<u64, f64>(ret_int));
                 sp += 1
             }
-            VariableType::Pointer => {}
+            VariableType::Pointer => {
+                stack[bp + sp] = Variable::Pointer(transmute::<u64, *mut u64>(ret_int));
+                sp += 1
+            }
             VariableType::Void => {}
         }
 
@@ -572,15 +575,15 @@ impl JIT {
 
         when_debug!(LLVMDumpModule(self.module));
 
-        llvm::analysis::LLVMVerifyFunction(
-            func,
-            llvm::analysis::LLVMVerifierFailureAction::LLVMAbortProcessAction,
-        );
-
         if let Err(e) = compiling_error {
             LLVMDeleteFunction(func);
             return Err(e);
         }
+
+        llvm::analysis::LLVMVerifyFunction(
+            func,
+            llvm::analysis::LLVMVerifierFailureAction::LLVMAbortProcessAction,
+        );
 
         LLVMRunPassManager(self.pass_mgr, self.module);
 
@@ -803,6 +806,15 @@ impl JIT {
                         CString::new("").unwrap().as_ptr(),
                     ))
                 }
+                Inst::aload_0 => {
+                    let index = (cur_code - Inst::aload_0) as usize;
+                    let var = self.declare_local_var(index, &VariableType::Pointer);
+                    stack.push(LLVMBuildLoad(
+                        self.builder,
+                        var,
+                        CString::new("").unwrap().as_ptr(),
+                    ))
+                }
                 Inst::if_icmpne | Inst::if_icmpge | Inst::if_icmpgt => {
                     let val2 = stack.pop().unwrap();
                     let val1 = stack.pop().unwrap();
@@ -981,7 +993,7 @@ impl JIT {
                         _ => return Err(Error::CouldntCompile),
                     };
                 }
-                Inst::ireturn | Inst::dreturn if !loop_compile => {
+                Inst::ireturn | Inst::dreturn | Inst::areturn if !loop_compile => {
                     let val = stack.pop().unwrap();
                     LLVMBuildRet(self.builder, val);
                 }

@@ -585,6 +585,10 @@ impl VM {
                     self.stack[self.bp] = self.stack[self.bp + frame.sp - 1].clone();
                     return Inst::ireturn;
                 }
+                Inst::areturn => {
+                    self.stack[self.bp] = self.stack[self.bp + frame.sp - 1].clone();
+                    return Inst::areturn;
+                }
                 Inst::dreturn => {
                     self.stack[self.bp] = self.stack[self.bp + frame.sp - 2].clone();
                     return Inst::dreturn;
@@ -1258,6 +1262,7 @@ pub mod Inst {
     pub const goto:         u8 = 167;
     pub const ireturn:      u8 = 172;
     pub const dreturn:      u8 = 175;
+    pub const areturn:      u8 = 176;
     pub const return_:      u8 = 177;
     pub const getstatic:    u8 = 178;
     pub const putstatic:    u8 = 179;
@@ -1280,7 +1285,7 @@ pub mod Inst {
                 | aload_3 | dstore_0 | dstore_1 | dstore_2 | dstore_3 | astore_0 | astore_1 | astore_2
                 | astore_3 | iaload | aaload | iastore | aastore | iadd | isub | imul | irem | iand
                 | dadd | dsub | dmul | ddiv | dneg | i2d | i2s | pop | pop2 | dcmpl | dcmpg | dup
-                | ireturn | dreturn | return_ | monitorenter => 1,
+                | ireturn | dreturn | areturn | return_ | monitorenter => 1,
             dstore | astore | istore | ldc | aload | dload | iload | bipush | newarray => 2,
             sipush | ldc2_w | iinc | invokestatic | invokespecial | invokevirtual | new | anewarray
                 | goto | ifeq | ifne | ifle | ifge | if_icmpne | if_icmpge | if_icmpgt | getstatic

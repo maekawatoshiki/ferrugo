@@ -120,9 +120,9 @@ class Hello {
     }
     System.out.println(z);
     
-    Person person = new Person("uint256_t");
+    Person person = new Person("carol");
     person.show();
-    Teacher eng = new Teacher("uint256_t", "English");
+    Teacher eng = new Teacher("carol", "English");
     eng.show();
     
     for (int i = 1; i < 500000; i++) {
@@ -136,9 +136,9 @@ class Hello {
       System.out.println("arr[" + i + "] = " + arr[i]);
     
     Person people[] = new Person[2];
-    people[0] = new Person("ken");
+    people[0] = new Person("alice");
     people[0].show();
-    people[1] = new Person("david");
+    people[1] = new Person("bob");
     people[1].show();
     
     double x_max = 2, x_min = -2, y_max = 1, y_min = -1, dx = 0.03, dy = 0.045;
