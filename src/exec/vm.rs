@@ -99,8 +99,9 @@ impl VM {
                     continue;
                 }
 
-                let can_jit = jit_info_mgr.inc_count_of_loop_exec($start, $end);
+                jit_info_mgr.inc_count_of_loop_exec($start, $end);
 
+                let can_jit = jit_info_mgr.loop_executed_enough_times($start);
                 if !can_jit {
                     $failed;
                     continue;
@@ -956,7 +957,9 @@ impl VM {
             exec_method.descriptor_index as usize,
         );
 
-        if !jit_info_mgr.inc_count_of_func_exec() {
+        jit_info_mgr.inc_count_of_func_exec();
+
+        if !jit_info_mgr.func_executed_enough_times() {
             return None;
         }
 

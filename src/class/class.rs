@@ -173,22 +173,24 @@ impl JITInfoManager {
         }
     }
 
-    pub fn inc_count_of_loop_exec(&mut self, start: usize, end: usize) -> bool {
+    pub fn inc_count_of_loop_exec(&mut self, start: usize, end: usize) {
         let (_, count, _) = self.loop_count.entry(start).or_insert((end, 1, None));
-        let do_compile = *count > 5; // TODO: No magic number
-        if !do_compile {
-            *count += 1;
-        }
-        do_compile
+        *count += 1;
     }
 
-    pub fn inc_count_of_func_exec(&mut self) -> bool {
+    pub fn inc_count_of_func_exec(&mut self) {
         let (count, _) = &mut self.whole_method;
-        let do_compile = *count > 3; // TODO: No magic number
-        if !do_compile {
-            *count += 1;
-        }
-        do_compile
+        *count += 1;
+    }
+
+    pub fn loop_executed_enough_times(&self, start: usize) -> bool {
+        let (_, count, _) = self.loop_count.get(&start).unwrap();
+        *count > 5
+    }
+
+    pub fn func_executed_enough_times(&self) -> bool {
+        let (count, _) = &self.whole_method;
+        *count > 3
     }
 
     pub fn get_jit_loop(&mut self, start: usize) -> &mut Option<LoopJITExecInfo> {

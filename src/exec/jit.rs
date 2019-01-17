@@ -5,6 +5,7 @@ use super::{
     },
     cfg::{Block, BrKind},
     frame::{ObjectBody, Variable},
+    native_functions,
     vm::{load_class, Inst, RuntimeEnvironment},
 };
 use libc;
@@ -30,7 +31,7 @@ pub enum VariableType {
     Pointer,
 }
 
-trait CastIntoLLVMType {
+pub trait CastIntoLLVMType {
     unsafe fn to_llvmty(&self, ctx: LLVMContextRef) -> LLVMTypeRef;
 }
 
@@ -142,129 +143,7 @@ impl JIT {
             bblocks: FxHashMap::default(),
             phi_stack: FxHashMap::default(),
             runtime_env,
-            native_functions: {
-                // TODO: Dirty.
-                let mut map = FxHashMap::default();
-                let func_ty = LLVMFunctionType(
-                    VariableType::Void.to_llvmty(context),
-                    vec![
-                        VariableType::Pointer.to_llvmty(context),
-                        VariableType::Pointer.to_llvmty(context),
-                        VariableType::Int.to_llvmty(context),
-                    ]
-                    .as_mut_ptr(),
-                    3,
-                    0,
-                );
-                let func = LLVMAddFunction(
-                    module,
-                    CString::new("java/io/PrintStream.println:(I)V")
-                        .unwrap()
-                        .as_ptr(),
-                    func_ty,
-                );
-                map.insert("java/io/PrintStream.println:(I)V".to_string(), func);
-                let func_ty = LLVMFunctionType(
-                    VariableType::Void.to_llvmty(context),
-                    vec![
-                        VariableType::Pointer.to_llvmty(context),
-                        VariableType::Pointer.to_llvmty(context),
-                        VariableType::Pointer.to_llvmty(context),
-                    ]
-                    .as_mut_ptr(),
-                    3,
-                    0,
-                );
-                let func = LLVMAddFunction(
-                    module,
-                    CString::new("java/io/PrintStream.println:(Ljava/lang/String;)V")
-                        .unwrap()
-                        .as_ptr(),
-                    func_ty,
-                );
-                map.insert(
-                    "java/io/PrintStream.println:(Ljava/lang/String;)V".to_string(),
-                    func,
-                );
-                let func_ty = LLVMFunctionType(
-                    VariableType::Void.to_llvmty(context),
-                    vec![
-                        VariableType::Pointer.to_llvmty(context),
-                        VariableType::Pointer.to_llvmty(context),
-                        VariableType::Pointer.to_llvmty(context),
-                    ]
-                    .as_mut_ptr(),
-                    3,
-                    0,
-                );
-                let func = LLVMAddFunction(
-                    module,
-                    CString::new("java/io/PrintStream.print:(Ljava/lang/String;)V")
-                        .unwrap()
-                        .as_ptr(),
-                    func_ty,
-                );
-                map.insert(
-                    "java/io/PrintStream.print:(Ljava/lang/String;)V".to_string(),
-                    func,
-                );
-                let name = "java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;";
-                let func_ty = LLVMFunctionType(
-                    VariableType::Pointer.to_llvmty(context),
-                    vec![
-                        VariableType::Pointer.to_llvmty(context),
-                        VariableType::Pointer.to_llvmty(context),
-                        VariableType::Int.to_llvmty(context),
-                    ]
-                    .as_mut_ptr(),
-                    3,
-                    0,
-                );
-                let func = LLVMAddFunction(module, CString::new(name).unwrap().as_ptr(), func_ty);
-                map.insert(name.to_string(), func);
-                let name =
-                    "java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;";
-                let func_ty = LLVMFunctionType(
-                    VariableType::Pointer.to_llvmty(context),
-                    vec![
-                        VariableType::Pointer.to_llvmty(context),
-                        VariableType::Pointer.to_llvmty(context),
-                        VariableType::Pointer.to_llvmty(context),
-                    ]
-                    .as_mut_ptr(),
-                    3,
-                    0,
-                );
-                let func = LLVMAddFunction(module, CString::new(name).unwrap().as_ptr(), func_ty);
-                map.insert(name.to_string(), func);
-                let name = "java/lang/StringBuilder.toString:()Ljava/lang/String;";
-                let func_ty = LLVMFunctionType(
-                    VariableType::Pointer.to_llvmty(context),
-                    vec![
-                        VariableType::Pointer.to_llvmty(context),
-                        VariableType::Pointer.to_llvmty(context),
-                    ]
-                    .as_mut_ptr(),
-                    2,
-                    0,
-                );
-                let func = LLVMAddFunction(module, CString::new(name).unwrap().as_ptr(), func_ty);
-                map.insert(name.to_string(), func);
-                let name = "ferrugo_internal_new";
-                let func_ty = LLVMFunctionType(
-                    VariableType::Pointer.to_llvmty(context),
-                    vec![
-                        VariableType::Pointer.to_llvmty(context),
-                        VariableType::Pointer.to_llvmty(context),
-                    ]
-                    .as_mut_ptr(),
-                    2,
-                    0,
-                );
-                let func = LLVMAddFunction(module, CString::new(name).unwrap().as_ptr(), func_ty);
-                map.insert(name.to_string(), func);
-                map
-            },
+            native_functions: native_functions::native_functions(module, context),
         }
     }
 }
