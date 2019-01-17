@@ -27,13 +27,23 @@ curl https://sh.rustup.rs -sSf | sh
 ```sh
 rustup override set nightly
 ```
-3. Test 
+
+3. Install dependencies
+  - LLVM 6.0
+  - (Other packages as necessary...)
+
+```sh
+# e.g. Ubuntu or Debian
+apt-get install llvm-6.0
+```
+
+4. Test 
 
 ```sh
 cargo test
 ```
 
-4. Build and Run
+5. Build and Run
 
 ```sh
 cargo run --release examples/Hello.class
