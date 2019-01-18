@@ -1,7 +1,11 @@
 package java.lang;
 
 public class StringBuilder {
-	private int buf;
+	private final String str;
+
+  public StringBuilder() {
+    this.str = "";
+  }
 	
 	public native StringBuilder append(String strAppend);
 	public native StringBuilder append(int append);

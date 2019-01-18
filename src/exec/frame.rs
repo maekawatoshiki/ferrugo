@@ -112,3 +112,9 @@ impl Variable {
         }
     }
 }
+
+impl ObjectBody {
+    pub fn get_string_mut(&self) -> &mut String {
+        unsafe { &mut *(self.variables.get("value").unwrap().get_pointer::<String>()) }
+    }
+}

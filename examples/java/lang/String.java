@@ -1,7 +1,9 @@
 package java.lang;
 
 public class String {
-  private int ptr;
-
+  private final char value[];
   public static native String valueOf(int n);
+  public String() {
+    this.value = new char[0];
+  }
 }

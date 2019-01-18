@@ -1,7 +1,6 @@
 use super::super::class::class::Class;
 use super::jit::*;
 use super::{frame::ObjectBody, vm::RuntimeEnvironment};
-use super::super::gc::gc::GcType;
 use llvm;
 use llvm::{core::*, prelude::*};
 use rustc_hash::FxHashMap;
@@ -105,14 +104,8 @@ pub extern "C" fn java_io_printstream_println_string_v(
     _obj: *mut ObjectBody,
     s: *mut ObjectBody,
 ) {
-    let object_body = unsafe { &mut *s };
-    println!("{}", unsafe {
-        &*(object_body
-            .variables
-            .get("str")
-            .unwrap()
-            .get_pointer::<String>())
-    });
+    let string = unsafe { &mut *s };
+    println!("{}", string.get_string_mut());
 }
 
 #[no_mangle]
@@ -121,14 +114,7 @@ pub extern "C" fn java_io_printstream_print_string_v(
     _obj: *mut ObjectBody,
     s: *mut ObjectBody,
 ) {
-    let object_body = unsafe { &mut *s };
-    print!("{}", unsafe {
-        &*(object_body
-            .variables
-            .get("str")
-            .unwrap()
-            .get_pointer::<String>())
-    });
+    print!("{}", unsafe { &mut *s }.get_string_mut());
 }
 
 #[no_mangle]
@@ -145,7 +131,7 @@ pub extern "C" fn java_lang_stringbuilder_append_i_stringbuilder(
             .entry("str".to_string())
             .or_insert((&mut *renv.objectheap).create_string_object("".to_string(), renv.classheap))
             .get_pointer::<ObjectBody>();
-        &mut *(string.variables.get_mut("str").unwrap().get_pointer() as GcType<String>)
+        string.get_string_mut()
     };
     string.push_str(format!("{}", i).as_str());
     obj
@@ -153,27 +139,19 @@ pub extern "C" fn java_lang_stringbuilder_append_i_stringbuilder(
 
 #[no_mangle]
 pub extern "C" fn java_lang_stringbuilder_append_string_stringbuilder(
-    renv: *mut RuntimeEnvironment,
+    _renv: *mut RuntimeEnvironment,
     obj: *mut ObjectBody,
     s: *mut ObjectBody,
 ) -> *mut ObjectBody {
-    let renv = unsafe { &mut *renv };
     let string_builder = unsafe { &mut *obj };
-    let append_str = unsafe {
-        let string = &mut *s;
-        &*(string.variables.get("str").unwrap().get_pointer::<String>())
-    };
+    let append_str = unsafe { (&mut *s).get_string_mut() };
     let string = unsafe {
         let string = &mut *string_builder
             .variables
-            .entry("str".to_string())
-            .or_insert((&mut *renv.objectheap).create_string_object("".to_string(), renv.classheap))
-            .get_pointer::<ObjectBody>();
-        &mut *(string
-            .variables
-            .get_mut("str")
+            .get("str")
             .unwrap()
-            .get_pointer::<String>())
+            .get_pointer::<ObjectBody>();
+        string.get_string_mut()
     };
     string.push_str(append_str);
     obj

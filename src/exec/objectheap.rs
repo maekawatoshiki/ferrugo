@@ -39,7 +39,7 @@ impl ObjectHeap {
         unsafe { &mut *object.get_pointer::<ObjectBody>() }
             .variables
             .insert(
-                "str".to_string(),
+                "value".to_string(),
                 Variable::Pointer(Box::into_raw(Box::new(string)) as GcType<u64>),
             );
 
