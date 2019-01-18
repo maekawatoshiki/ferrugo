@@ -6,4 +6,7 @@ public class String {
   public String() {
     this.value = new char[0];
   }
+  public int length() {
+    return value.length;
+  }
 }

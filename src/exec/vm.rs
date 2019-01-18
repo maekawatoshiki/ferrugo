@@ -606,6 +606,12 @@ impl VM {
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
+                Inst::arraylength => {
+                    let objectref = &self.stack[self.bp + frame.sp - 1];
+                    let array = unsafe { &mut *objectref.get_pointer::<Array>() };
+                    self.stack[self.bp + frame.sp - 1] = Variable::Int(array.get_length() as i32);
+                    frame.pc += 1;
+                }
                 e => unimplemented!("{}", e),
             }
         }
@@ -1030,6 +1036,8 @@ impl VM {
         let size = self.stack[self.bp + frame.sp - 1].get_int() as usize;
         self.stack[self.bp + frame.sp - 1] =
             unsafe { &mut *self.objectheap }.create_obj_array(class, size);
+
+        gc::mark_and_sweep(self);
     }
 
     fn run_new(&mut self) {
@@ -1249,6 +1257,7 @@ pub mod Inst {
     pub const new:          u8 = 187;
     pub const newarray:     u8 = 188;
     pub const anewarray:    u8 = 189;
+    pub const arraylength:  u8 = 190;
     pub const monitorenter: u8 = 194;
     // pub const ifnonnull:    u8 = 199;
     
@@ -1260,7 +1269,7 @@ pub mod Inst {
                 | aload_3 | dstore_0 | dstore_1 | dstore_2 | dstore_3 | astore_0 | astore_1 | astore_2
                 | astore_3 | iaload | aaload | iastore | aastore | iadd | isub | imul | irem | iand
                 | dadd | dsub | dmul | ddiv | dneg | i2d | i2s | pop | pop2 | dcmpl | dcmpg | dup
-                | ireturn | dreturn | areturn | return_ | monitorenter | aconst_null => 1,
+                | ireturn | dreturn | areturn | return_ | monitorenter | aconst_null | arraylength => 1,
             dstore | astore | istore | ldc | aload | dload | iload | bipush | newarray => 2,
             sipush | ldc2_w | iinc | invokestatic | invokespecial | invokevirtual | new | anewarray
                 | goto | ifeq | ifne | ifle | ifge | if_icmpne | if_icmpge | if_icmpgt | getstatic

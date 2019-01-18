@@ -40,7 +40,11 @@ impl ObjectHeap {
             .variables
             .insert(
                 "value".to_string(),
-                Variable::Pointer(Box::into_raw(Box::new(string)) as GcType<u64>),
+                Variable::Pointer(gc::new(Array {
+                    atype: AType::Char,
+                    elements: vec![],
+                    string: Some(string),
+                }) as GcType<u64>),
             );
 
         object
@@ -56,6 +60,7 @@ impl ObjectHeap {
                 }
                 elements
             },
+            string: None,
         };
 
         Variable::Pointer(gc::new(array) as GcType<u64>)
@@ -71,6 +76,7 @@ impl ObjectHeap {
                 }
                 elements
             },
+            string: None,
         };
 
         Variable::Pointer(gc::new(array) as GcType<u64>)

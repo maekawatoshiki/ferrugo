@@ -55,6 +55,18 @@ pub enum AType {
 pub struct Array {
     pub atype: AType,
     pub elements: Vec<Variable>,
+    // TODO: Treat as special. Need a better way.
+    pub string: Option<String>,
+}
+
+impl Array {
+    pub fn get_length(&self) -> usize {
+        if let Some(ref string) = self.string {
+            string.len()
+        } else {
+            self.elements.len()
+        }
+    }
 }
 
 impl AType {
@@ -115,6 +127,9 @@ impl Variable {
 
 impl ObjectBody {
     pub fn get_string_mut(&self) -> &mut String {
-        unsafe { &mut *(self.variables.get("value").unwrap().get_pointer::<String>()) }
+        unsafe { &mut *(self.variables.get("value").unwrap().get_pointer::<Array>()) }
+            .string
+            .as_mut()
+            .unwrap()
     }
 }
