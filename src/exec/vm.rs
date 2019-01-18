@@ -5,6 +5,7 @@ use super::super::class::classheap::ClassHeap;
 use super::super::gc::{gc, gc::GcType};
 use super::cfg::CFGMaker;
 use super::frame::{AType, Array, Frame, ObjectBody, Variable};
+use super::native_functions;
 use super::objectheap::ObjectHeap;
 use super::{jit, jit::JIT};
 use ansi_term::Colour;
@@ -146,6 +147,11 @@ impl VM {
             let cur_code = code[frame.pc as usize];
 
             match cur_code {
+                Inst::aconst_null => {
+                    self.stack[self.bp + frame.sp] = Variable::Pointer(0 as *mut u64);
+                    frame.sp += 1;
+                    frame.pc += 1;
+                }
                 Inst::iconst_m1
                 | Inst::iconst_0
                 | Inst::iconst_1
@@ -309,7 +315,7 @@ impl VM {
                     frame.pc += 1;
                 }
                 Inst::bipush => {
-                    self.stack[self.bp + frame.sp] = Variable::Char(code[frame.pc + 1] as i8);
+                    self.stack[self.bp + frame.sp] = Variable::Byte(code[frame.pc + 1] as i8);
                     frame.sp += 1;
                     frame.pc += 2;
                 }
@@ -394,7 +400,6 @@ impl VM {
                     let index = code[frame.pc + 1] as usize;
                     let const_ = code[frame.pc + 2];
                     match self.stack[self.bp + index] {
-                        Variable::Char(ref mut n) => *n += const_ as i8,
                         Variable::Short(ref mut n) => *n += const_ as i16,
                         Variable::Int(ref mut n) => *n += const_ as i32,
                         _ => panic!("must be int"),
@@ -621,7 +626,7 @@ impl VM {
 
         match signature.as_str() {
             "java/io/PrintStream.println:(I)V" => {
-                jit::java_io_printstream_println_i_v(
+                native_functions::java_io_printstream_println_i_v(
                     self.runtime_env,
                     self.stack[self.bp].get_pointer::<ObjectBody>(),
                     self.stack[self.bp + 1].get_int(),
@@ -631,14 +636,14 @@ impl VM {
                 println!("{}", self.stack[self.bp + 1].get_double());
             }
             "java/io/PrintStream.println:(Ljava/lang/String;)V" => {
-                jit::java_io_printstream_println_string_v(
+                native_functions::java_io_printstream_println_string_v(
                     self.runtime_env,
                     self.stack[self.bp + 0].get_pointer::<ObjectBody>(),
                     self.stack[self.bp + 1].get_pointer::<ObjectBody>(),
                 );
             }
             "java/io/PrintStream.print:(Ljava/lang/String;)V" => {
-                jit::java_io_printstream_print_string_v(
+                native_functions::java_io_printstream_print_string_v(
                     self.runtime_env,
                     self.stack[self.bp + 0].get_pointer::<ObjectBody>(),
                     self.stack[self.bp + 1].get_pointer::<ObjectBody>(),
@@ -650,21 +655,21 @@ impl VM {
                     objectheap.create_string_object(format!("{}", i), self.classheap);
             }
             "java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;" => {
-                jit::java_lang_stringbuilder_append_string_stringbuilder(
+                native_functions::java_lang_stringbuilder_append_string_stringbuilder(
                     self.runtime_env,
                     self.stack[self.bp + 0].get_pointer::<ObjectBody>(),
                     self.stack[self.bp + frame.sp - 1].get_pointer::<ObjectBody>(),
                 );
             }
             "java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;" => {
-                jit::java_lang_stringbuilder_append_i_stringbuilder(
+                native_functions::java_lang_stringbuilder_append_i_stringbuilder(
                     self.runtime_env,
                     self.stack[self.bp + 0].get_pointer::<ObjectBody>(),
                     self.stack[self.bp + frame.sp - 1].get_int(),
                 );
             }
             "java/lang/StringBuilder.toString:()Ljava/lang/String;" => {
-                let s = jit::java_lang_stringbuilder_tostring_string(
+                let s = native_functions::java_lang_stringbuilder_tostring_string(
                     self.runtime_env,
                     self.stack[self.bp + 0].get_pointer::<ObjectBody>(),
                 );
@@ -1156,6 +1161,7 @@ pub fn load_class(
 #[allow(non_snake_case)]
 pub mod Inst {
     pub type Code = u8;
+    pub const aconst_null:  u8 = 1;
     pub const iconst_m1:    u8 = 2;
     pub const iconst_0:     u8 = 3;
     pub const iconst_1:     u8 = 4;
@@ -1254,7 +1260,7 @@ pub mod Inst {
                 | aload_3 | dstore_0 | dstore_1 | dstore_2 | dstore_3 | astore_0 | astore_1 | astore_2
                 | astore_3 | iaload | aaload | iastore | aastore | iadd | isub | imul | irem | iand
                 | dadd | dsub | dmul | ddiv | dneg | i2d | i2s | pop | pop2 | dcmpl | dcmpg | dup
-                | ireturn | dreturn | areturn | return_ | monitorenter => 1,
+                | ireturn | dreturn | areturn | return_ | monitorenter | aconst_null => 1,
             dstore | astore | istore | ldc | aload | dload | iload | bipush | newarray => 2,
             sipush | ldc2_w | iinc | invokestatic | invokespecial | invokevirtual | new | anewarray
                 | goto | ifeq | ifne | ifle | ifge | if_icmpne | if_icmpge | if_icmpgt | getstatic

@@ -524,6 +524,10 @@ impl ClassFileReader {
                 let offset_delta = self.read_u16()?;
                 StackMapFrameBody::ChopFrame { offset_delta }
             }
+            251 => {
+                let offset_delta = self.read_u16()?;
+                StackMapFrameBody::SameFrameExtended { offset_delta }
+            }
             255 => {
                 let offset_delta = self.read_u16()?;
                 let number_of_locals = self.read_u16()?;

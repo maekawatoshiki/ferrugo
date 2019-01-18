@@ -93,6 +93,9 @@ pub enum StackMapFrameBody {
     ChopFrame {
         offset_delta: u16,
     },
+    SameFrameExtended {
+        offset_delta: u16,
+    },
     FullFrame {
         offset_delta: u16,
         number_of_locals: u16,

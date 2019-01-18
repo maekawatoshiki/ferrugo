@@ -4,7 +4,7 @@ use super::{
         gc::gc::GcType,
     },
     cfg::{Block, BrKind},
-    frame::{ObjectBody, Variable},
+    frame::Variable,
     native_functions,
     vm::{load_class, Inst, RuntimeEnvironment},
 };
@@ -209,7 +209,7 @@ impl JIT {
             panic!("llvm error: failed to initialize execute engine")
         }
 
-        self.add_native_functions(ee);
+        native_functions::add_native_functions(&self.native_functions, ee);
 
         let ret_val = llvm::execution_engine::LLVMRunFunction(ee, func, 0, vec![].as_mut_ptr());
         let ret_int = llvm::execution_engine::LLVMGenericValueToInt(ret_val, 0);
@@ -245,7 +245,7 @@ impl JIT {
 
         for (offset, _ty) in &exec_info.local_variables {
             raw_local_vars.push(match stack[bp + offset] {
-                Variable::Char(i) => Box::into_raw(Box::new(i as i32)) as *mut libc::c_void,
+                Variable::Byte(i) => Box::into_raw(Box::new(i as i32)) as *mut libc::c_void,
                 Variable::Short(i) => Box::into_raw(Box::new(i as i32)) as *mut libc::c_void,
                 Variable::Int(i) => Box::into_raw(Box::new(i)) as *mut libc::c_void,
                 Variable::Double(f) => Box::into_raw(Box::new(f)) as *mut libc::c_void,
@@ -267,48 +267,6 @@ impl JIT {
         }
 
         Some(pc as usize)
-    }
-}
-
-impl JIT {
-    // TODO
-    unsafe fn add_native_functions(&self, ee: llvm::execution_engine::LLVMExecutionEngineRef) {
-        for (name, func) in &[
-            (
-                "java/io/PrintStream.println:(I)V",
-                java_io_printstream_println_i_v as *mut libc::c_void,
-            ),
-            (
-                "java/io/PrintStream.println:(Ljava/lang/String;)V",
-                java_io_printstream_println_string_v as *mut libc::c_void,
-            ),
-            (
-                "java/io/PrintStream.print:(Ljava/lang/String;)V",
-                java_io_printstream_print_string_v as *mut libc::c_void,
-            ),
-            (
-                "java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;",
-                java_lang_stringbuilder_append_string_stringbuilder as *mut libc::c_void,
-            ),
-            (
-                "java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;",
-                java_lang_stringbuilder_append_i_stringbuilder as *mut libc::c_void,
-            ),
-            (
-                "java/lang/StringBuilder.toString:()Ljava/lang/String;",
-                java_lang_stringbuilder_tostring_string as *mut libc::c_void,
-            ),
-            (
-                "ferrugo_internal_new",
-                ferrugo_internal_new as *mut libc::c_void,
-            ),
-        ] {
-            llvm::execution_engine::LLVMAddGlobalMapping(
-                ee,
-                *self.native_functions.get(*name).unwrap(),
-                *func,
-            );
-        }
     }
 }
 
@@ -599,7 +557,7 @@ impl JIT {
             panic!("llvm error: failed to initialize execute engine")
         }
 
-        self.add_native_functions(ee);
+        native_functions::add_native_functions(&self.native_functions, ee);
 
         let func_raw = llvm::execution_engine::LLVMGetFunctionAddress(
             ee,
@@ -1353,7 +1311,7 @@ impl BasicBlockInfo {
 impl Variable {
     pub unsafe fn to_llvm_val(&self, ctx: LLVMContextRef) -> LLVMValueRef {
         match self {
-            Variable::Char(c) => LLVMConstInt(LLVMInt16TypeInContext(ctx), *c as u64, 1),
+            Variable::Byte(c) => LLVMConstInt(LLVMInt16TypeInContext(ctx), *c as u64, 1),
             Variable::Short(i) => LLVMConstInt(LLVMInt16TypeInContext(ctx), *i as u64, 1),
             Variable::Int(i) => LLVMConstInt(LLVMInt32TypeInContext(ctx), *i as u64, 1),
             Variable::Float(f) => LLVMConstReal(LLVMFloatTypeInContext(ctx), *f as f64),
@@ -1387,113 +1345,4 @@ unsafe fn llvm_const_ptr(ctx: LLVMContextRef, p: *mut u64) -> LLVMValueRef {
     let ptr_as_int = LLVMConstInt(LLVMInt64TypeInContext(ctx), p as u64, 0);
     let const_ptr = LLVMConstIntToPtr(ptr_as_int, VariableType::Pointer.to_llvmty(ctx));
     const_ptr
-}
-
-#[no_mangle]
-pub extern "C" fn java_io_printstream_println_i_v(
-    _renv: *mut RuntimeEnvironment,
-    _obj: *mut ObjectBody,
-    i: i32,
-) {
-    println!("{}", i);
-}
-
-#[no_mangle]
-pub extern "C" fn java_io_printstream_println_string_v(
-    _renv: *mut RuntimeEnvironment,
-    _obj: *mut ObjectBody,
-    s: *mut ObjectBody,
-) {
-    let object_body = unsafe { &mut *s };
-    println!("{}", unsafe {
-        &*(object_body
-            .variables
-            .get("str")
-            .unwrap()
-            .get_pointer::<String>())
-    });
-}
-
-#[no_mangle]
-pub extern "C" fn java_io_printstream_print_string_v(
-    _renv: *mut RuntimeEnvironment,
-    _obj: *mut ObjectBody,
-    s: *mut ObjectBody,
-) {
-    let object_body = unsafe { &mut *s };
-    print!("{}", unsafe {
-        &*(object_body
-            .variables
-            .get("str")
-            .unwrap()
-            .get_pointer::<String>())
-    });
-}
-
-#[no_mangle]
-pub extern "C" fn java_lang_stringbuilder_append_i_stringbuilder(
-    renv: *mut RuntimeEnvironment,
-    obj: *mut ObjectBody,
-    i: i32,
-) -> *mut ObjectBody {
-    let renv = unsafe { &mut *renv };
-    let string_builder = unsafe { &mut *obj };
-    let string = unsafe {
-        let string = &mut *string_builder
-            .variables
-            .entry("str".to_string())
-            .or_insert((&mut *renv.objectheap).create_string_object("".to_string(), renv.classheap))
-            .get_pointer::<ObjectBody>();
-        &mut *(string.variables.get_mut("str").unwrap().get_pointer() as GcType<String>)
-    };
-    string.push_str(format!("{}", i).as_str());
-    obj
-}
-
-#[no_mangle]
-pub extern "C" fn java_lang_stringbuilder_append_string_stringbuilder(
-    renv: *mut RuntimeEnvironment,
-    obj: *mut ObjectBody,
-    s: *mut ObjectBody,
-) -> *mut ObjectBody {
-    let renv = unsafe { &mut *renv };
-    let string_builder = unsafe { &mut *obj };
-    let append_str = unsafe {
-        let string = &mut *s;
-        &*(string.variables.get("str").unwrap().get_pointer::<String>())
-    };
-    let string = unsafe {
-        let string = &mut *string_builder
-            .variables
-            .entry("str".to_string())
-            .or_insert((&mut *renv.objectheap).create_string_object("".to_string(), renv.classheap))
-            .get_pointer::<ObjectBody>();
-        &mut *(string
-            .variables
-            .get_mut("str")
-            .unwrap()
-            .get_pointer::<String>())
-    };
-    string.push_str(append_str);
-    obj
-}
-
-#[no_mangle]
-pub extern "C" fn java_lang_stringbuilder_tostring_string(
-    _renv: *mut RuntimeEnvironment,
-    obj: *mut ObjectBody,
-) -> *mut ObjectBody {
-    let string_builder = unsafe { &mut *obj };
-    let s = string_builder.variables.get("str").unwrap().clone();
-    s.get_pointer::<ObjectBody>()
-}
-
-#[no_mangle]
-pub extern "C" fn ferrugo_internal_new(
-    renv: *mut RuntimeEnvironment,
-    class: *mut Class,
-) -> *mut ObjectBody {
-    let renv = unsafe { &mut *renv };
-    let object = unsafe { &mut *renv.objectheap }.create_object(class);
-    object.get_pointer::<ObjectBody>()
 }

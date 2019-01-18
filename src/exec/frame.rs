@@ -24,7 +24,7 @@ impl Frame {
 
 #[derive(Debug, Clone)]
 pub enum Variable {
-    Char(i8),
+    Byte(i8),
     Short(i16),
     Int(i32),
     Float(f32),
@@ -91,7 +91,7 @@ impl AType {
 impl Variable {
     pub fn get_int(&self) -> i32 {
         match self {
-            Variable::Char(n) => *n as i32,
+            Variable::Byte(n) => *n as i32,
             Variable::Short(n) => *n as i32,
             Variable::Int(n) => *n,
             _ => panic!("what?"),
