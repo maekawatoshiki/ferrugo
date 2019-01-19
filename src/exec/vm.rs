@@ -383,10 +383,34 @@ impl VM {
                         Variable::Double(-self.stack[self.bp + frame.sp - 2].get_double());
                     frame.pc += 1;
                 }
+                Inst::ishl => {
+                    self.stack[self.bp + frame.sp - 2] = Variable::Int(
+                        self.stack[self.bp + frame.sp - 2].get_int()
+                            << self.stack[self.bp + frame.sp - 1].get_int(),
+                    );
+                    frame.sp -= 1;
+                    frame.pc += 1;
+                }
+                Inst::ishr => {
+                    self.stack[self.bp + frame.sp - 2] = Variable::Int(
+                        self.stack[self.bp + frame.sp - 2].get_int()
+                            >> self.stack[self.bp + frame.sp - 1].get_int(),
+                    );
+                    frame.sp -= 1;
+                    frame.pc += 1;
+                }
                 Inst::iand => {
                     self.stack[self.bp + frame.sp - 2] = Variable::Int(
                         self.stack[self.bp + frame.sp - 2].get_int()
                             & self.stack[self.bp + frame.sp - 1].get_int(),
+                    );
+                    frame.sp -= 1;
+                    frame.pc += 1;
+                }
+                Inst::ixor => {
+                    self.stack[self.bp + frame.sp - 2] = Variable::Int(
+                        self.stack[self.bp + frame.sp - 2].get_int()
+                            ^ self.stack[self.bp + frame.sp - 1].get_int(),
                     );
                     frame.sp -= 1;
                     frame.pc += 1;
@@ -425,6 +449,16 @@ impl VM {
                 Inst::dup => {
                     self.stack[self.bp + frame.sp] = self.stack[self.bp + frame.sp - 1].clone();
                     frame.sp += 1;
+                    frame.pc += 1;
+                }
+                Inst::dup_x1 => {
+                    let val1 = self.stack[self.bp + frame.sp - 1];
+                    let val2 = self.stack[self.bp + frame.sp - 2];
+                    frame.sp -= 2;
+                    self.stack[self.bp + frame.sp + 0] = val1;
+                    self.stack[self.bp + frame.sp + 1] = val2;
+                    self.stack[self.bp + frame.sp + 2] = val1;
+                    frame.sp += 3;
                     frame.pc += 1;
                 }
                 Inst::goto => {
@@ -516,6 +550,20 @@ impl VM {
                             frame.pc += 3;
                         }
                     );
+                }
+                Inst::if_icmpeq => {
+                    let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
+                    let val2 = self.stack[self.bp + frame.sp - 1].get_int();
+                    let val1 = self.stack[self.bp + frame.sp - 2].get_int();
+                    frame.sp -= 2;
+                    let dst = (frame.pc as isize + branch as isize) as usize;
+                    loop_jit!(frame, dst < frame.pc, dst, frame.pc + 3, {
+                        if val1 == val2 {
+                            frame.pc = dst
+                        } else {
+                            frame.pc += 3;
+                        }
+                    });
                 }
                 Inst::if_icmpne => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
@@ -1239,6 +1287,7 @@ pub mod Inst {
     pub const pop:          u8 = 87;
     pub const pop2:         u8 = 88;
     pub const dup:          u8 = 89;
+    pub const dup_x1:       u8 = 90;
     pub const iadd:         u8 = 96;
     pub const dadd:         u8 = 99;
     pub const isub:         u8 = 100;
@@ -1248,7 +1297,10 @@ pub mod Inst {
     pub const ddiv:         u8 = 111;
     pub const irem:         u8 = 112;
     pub const dneg:         u8 = 119;
+    pub const ishl:         u8 = 120;
+    pub const ishr:         u8 = 122;
     pub const iand:         u8 = 126;
+    pub const ixor:         u8 = 130;
     pub const iinc:         u8 = 132;
     pub const i2d:          u8 = 135;
     pub const i2s:          u8 = 147;
@@ -1258,6 +1310,7 @@ pub mod Inst {
     pub const ifne:         u8 = 154;
     pub const ifge:         u8 = 156;
     pub const ifle:         u8 = 158;
+    pub const if_icmpeq:    u8 = 159;
     pub const if_icmpne:    u8 = 160;
     pub const if_icmpge:    u8 = 162;
     pub const if_icmpgt:    u8 = 163;
@@ -1289,10 +1342,11 @@ pub mod Inst {
                 | aload_3 | dstore_0 | dstore_1 | dstore_2 | dstore_3 | astore_0 | astore_1 | astore_2
                 | astore_3 | iaload | aaload | iastore | aastore | iadd | isub | imul | irem | iand
                 | dadd | dsub | dmul | ddiv | dneg | i2d | i2s | pop | pop2 | dcmpl | dcmpg | dup
-                | ireturn | dreturn | areturn | return_ | monitorenter | aconst_null | arraylength => 1,
+                | ireturn | dreturn | areturn | return_ | monitorenter | aconst_null | arraylength 
+                | ishl | ishr | ixor | dup_x1 => 1,
             dstore | astore | istore | ldc | aload | dload | iload | bipush | newarray => 2,
             sipush | ldc2_w | iinc | invokestatic | invokespecial | invokevirtual | new | anewarray
-                | goto | ifeq | ifne | ifle | ifge | if_icmpne | if_icmpge | if_icmpgt | if_acmpne | 
+                | goto | ifeq | ifne | ifle | ifge | if_icmpne | if_icmpge | if_icmpgt | if_icmpeq | if_acmpne | 
                 getstatic | putstatic | getfield | putfield => 3, 
             e => unimplemented!("{}", e),
         }
