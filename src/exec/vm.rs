@@ -234,17 +234,12 @@ impl VM {
                     {
                         Constant::IntegerInfo { i } => Variable::Int(i),
                         Constant::FloatInfo { f } => Variable::Float(f),
-                        Constant::String { string_index } => {
-                            let string = unsafe { &*frame.class.unwrap() }
-                                .get_utf8_from_const_pool(string_index as usize)
-                                .unwrap()
-                                .to_owned();
-                            // TODO: Constant string refers to constant pool,
-                            // so should not create a new string object.
-                            // "aaa" == "aaa" // => true
-                            unsafe { &mut *self.objectheap }
-                                .create_string_object(string, self.classheap)
-                        }
+                        Constant::String { string_index } => unsafe { &mut *frame.class.unwrap() }
+                            .get_java_string_utf8_from_const_pool(
+                                self.objectheap,
+                                string_index as usize,
+                            )
+                            .unwrap(),
                         _ => unimplemented!(),
                     };
                     self.stack[self.bp + frame.sp] = val;
@@ -572,6 +567,20 @@ impl VM {
                         }
                     );
                 }
+                Inst::if_acmpne => {
+                    let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
+                    let val2 = self.stack[self.bp + frame.sp - 1].get_pointer::<u64>();
+                    let val1 = self.stack[self.bp + frame.sp - 2].get_pointer::<u64>();
+                    frame.sp -= 2;
+                    let dst = (frame.pc as isize + branch as isize) as usize;
+                    loop_jit!(frame, dst < frame.pc, dst, frame.pc + 3, {
+                        if val1 != val2 {
+                            frame.pc = dst
+                        } else {
+                            frame.pc += 3;
+                        }
+                    });
+                }
                 // Inst::ifnonnull => {
                 //     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                 //     let val = self.stack[self.bp + frame.sp - 1].clone();
@@ -640,6 +649,16 @@ impl VM {
             }
             "java/io/PrintStream.println:(D)V" => {
                 println!("{}", self.stack[self.bp + 1].get_double());
+            }
+            "java/io/PrintStream.println:(Z)V" => {
+                println!(
+                    "{}",
+                    if self.stack[self.bp + 1].get_int() == 0 {
+                        false
+                    } else {
+                        true
+                    }
+                );
             }
             "java/io/PrintStream.println:(Ljava/lang/String;)V" => {
                 native_functions::java_io_printstream_println_string_v(
@@ -1242,6 +1261,7 @@ pub mod Inst {
     pub const if_icmpne:    u8 = 160;
     pub const if_icmpge:    u8 = 162;
     pub const if_icmpgt:    u8 = 163;
+    pub const if_acmpne:    u8 = 166;
     pub const goto:         u8 = 167;
     pub const ireturn:      u8 = 172;
     pub const dreturn:      u8 = 175;
@@ -1272,8 +1292,8 @@ pub mod Inst {
                 | ireturn | dreturn | areturn | return_ | monitorenter | aconst_null | arraylength => 1,
             dstore | astore | istore | ldc | aload | dload | iload | bipush | newarray => 2,
             sipush | ldc2_w | iinc | invokestatic | invokespecial | invokevirtual | new | anewarray
-                | goto | ifeq | ifne | ifle | ifge | if_icmpne | if_icmpge | if_icmpgt | getstatic
-                | putstatic | getfield | putfield => 3,
+                | goto | ifeq | ifne | ifle | ifge | if_icmpne | if_icmpge | if_icmpgt | if_acmpne | 
+                getstatic | putstatic | getfield | putfield => 3, 
             e => unimplemented!("{}", e),
         }
     }

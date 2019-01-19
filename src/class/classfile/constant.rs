@@ -1,3 +1,5 @@
+use super::super::super::exec::frame::Variable;
+
 #[derive(Debug, Clone)]
 pub enum ConstantType {
     Class,
@@ -79,6 +81,7 @@ pub enum Constant {
     },
     Utf8 {
         s: String,
+        java_string: Option<Variable>,
     },
     NameAndTypeInfo {
         name_index: u16,
@@ -113,7 +116,7 @@ pub enum Constant {
 impl Constant {
     pub fn get_utf8(&self) -> Option<&String> {
         match self {
-            Constant::Utf8 { s } => Some(s),
+            Constant::Utf8 { s, .. } => Some(s),
             _ => None,
         }
     }

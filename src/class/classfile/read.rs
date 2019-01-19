@@ -219,6 +219,7 @@ impl ClassFileReader {
         }
         Some(Constant::Utf8 {
             s: String::from_utf8(bytes).ok()?,
+            java_string: None,
         })
     }
 

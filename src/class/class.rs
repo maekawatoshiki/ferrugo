@@ -1,8 +1,11 @@
 use super::super::exec::frame::Variable;
 use super::super::exec::jit::{FuncJITExecInfo, LoopJITExecInfo};
+use super::super::exec::objectheap::ObjectHeap;
 use super::super::gc::gc::GcType;
 use super::classfile::read::ClassFileReader;
-use super::classfile::{classfile::ClassFile, field::FieldInfo, method::MethodInfo};
+use super::classfile::{
+    classfile::ClassFile, constant::Constant, field::FieldInfo, method::MethodInfo,
+};
 use super::classheap::ClassHeap;
 use rustc_hash::FxHashMap;
 
@@ -61,6 +64,30 @@ impl Class {
 
     pub fn get_utf8_from_const_pool(&self, index: usize) -> Option<&String> {
         self.classfile.constant_pool[index].get_utf8()
+    }
+
+    pub fn get_java_string_utf8_from_const_pool(
+        &mut self,
+        objectheap: GcType<ObjectHeap>,
+        index: usize,
+    ) -> Option<Variable> {
+        let (s, java_string) = match self.classfile.constant_pool[index] {
+            Constant::Utf8 {
+                ref s,
+                ref mut java_string,
+            } => (s, java_string),
+            _ => return None,
+        };
+
+        if let Some(java_string) = java_string {
+            return Some(*java_string);
+        }
+
+        let jstring =
+            unsafe { &mut *objectheap }.create_string_object(s.clone(), self.classheap.unwrap());
+        *java_string = Some(jstring);
+
+        Some(jstring)
     }
 
     pub fn get_method(

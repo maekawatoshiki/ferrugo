@@ -84,9 +84,10 @@ class Hello {
   }
 
   public static void main(String[] args) {
-    System.out.println("hello");
-    System.out.println("hello".length());
-
+    String hello = "hello";
+    System.out.println(hello.length());
+    System.out.println("hello" == hello);
+    
     int count = 0;
     for (int i = 0; i < 10000; i++) {
       if (i % 33 == 0) continue;

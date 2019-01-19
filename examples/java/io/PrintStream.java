@@ -6,4 +6,5 @@ public class PrintStream {
   public native void println(String msg);
   public native void println(double d);
   public native void println(int i);
+  public native void println(boolean b);
 }

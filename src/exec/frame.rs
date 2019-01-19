@@ -22,7 +22,7 @@ impl Frame {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Variable {
     Byte(i8),
     Short(i16),
