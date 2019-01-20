@@ -523,6 +523,23 @@ impl VM {
                         }
                     );
                 }
+                Inst::iflt => {
+                    let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
+                    let val = self.stack[self.bp + frame.sp - 1].get_int();
+                    frame.sp -= 1;
+                    let dst = (frame.pc as isize + branch as isize) as usize;
+                    loop_jit!(
+                        frame,
+                        dst < frame.pc,
+                        dst,
+                        frame.pc + 3,
+                        if val < 0 {
+                            frame.pc = dst;
+                        } else {
+                            frame.pc += 3;
+                        }
+                    );
+                }
                 Inst::ifle => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                     let val = self.stack[self.bp + frame.sp - 1].get_int();
@@ -551,6 +568,23 @@ impl VM {
                         dst,
                         frame.pc + 3,
                         if val >= 0 {
+                            frame.pc = dst;
+                        } else {
+                            frame.pc += 3;
+                        }
+                    );
+                }
+                Inst::ifnull => {
+                    let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
+                    let val = self.stack[self.bp + frame.sp - 1].get_pointer::<u64>();
+                    frame.sp -= 1;
+                    let dst = (frame.pc as isize + branch as isize) as usize;
+                    loop_jit!(
+                        frame,
+                        dst < frame.pc,
+                        dst,
+                        frame.pc + 3,
+                        if val == 0 as *mut u64 {
                             frame.pc = dst;
                         } else {
                             frame.pc += 3;
@@ -1210,6 +1244,7 @@ pub fn load_class_with_filename(
 
     vm.run();
 
+    // Initialization with ``static { ... }``
     if let Some((class, method)) = unsafe { &*class_ptr }.get_method("<clinit>", "()V") {
         vm.bp = 0;
         vm.frame_stack[0].pc = 0;
@@ -1319,6 +1354,7 @@ pub mod Inst {
     pub const dcmpg:        u8 = 152;
     pub const ifeq:         u8 = 153;
     pub const ifne:         u8 = 154;
+    pub const iflt:         u8 = 155;
     pub const ifge:         u8 = 156;
     pub const ifle:         u8 = 158;
     pub const if_icmpeq:    u8 = 159;
@@ -1343,6 +1379,7 @@ pub mod Inst {
     pub const anewarray:    u8 = 189;
     pub const arraylength:  u8 = 190;
     pub const monitorenter: u8 = 194;
+    pub const ifnull:       u8 = 198;
     // pub const ifnonnull:    u8 = 199;
     
     pub fn get_inst_size(inst: Code) -> usize {
@@ -1357,7 +1394,8 @@ pub mod Inst {
                 | ishl | ishr | ixor | dup_x1 | d2i => 1,
             dstore | astore | istore | ldc | aload | dload | iload | bipush | newarray => 2,
             sipush | ldc2_w | iinc | invokestatic | invokespecial | invokevirtual | new | anewarray
-                | goto | ifeq | ifne | ifle | ifge | if_icmpne | if_icmpge | if_icmpgt | if_icmpeq | if_acmpne | 
+                | goto | ifeq | iflt | ifne | ifle | ifge | if_icmpne | if_icmpge | if_icmpgt | if_icmpeq | if_acmpne | 
+                ifnull | 
                 getstatic | putstatic | getfield | putfield => 3, 
             e => unimplemented!("{}", e),
         }

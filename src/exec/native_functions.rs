@@ -130,35 +130,34 @@ pub extern "C" fn java_lang_stringbuilder_append_i_stringbuilder(
 ) -> *mut ObjectBody {
     let renv = unsafe { &mut *renv };
     let string_builder = unsafe { &mut *obj };
-    let string = unsafe {
-        let string = &mut *string_builder
-            .variables
-            .entry("str".to_string())
-            .or_insert((&mut *renv.objectheap).create_string_object("".to_string(), renv.classheap))
-            .get_pointer::<ObjectBody>();
-        string.get_string_mut()
-    };
-    string.push_str(format!("{}", i).as_str());
+    unsafe {
+        let string = &mut *string_builder.variables.get_mut("str").unwrap();
+        let mut string2 = (&mut *string.get_pointer::<ObjectBody>())
+            .get_string_mut()
+            .clone();
+        string2.push_str(format!("{}", i).as_str());
+        *string = (&mut *renv.objectheap).create_string_object(string2.to_string(), renv.classheap);
+    }
     obj
 }
 
 #[no_mangle]
 pub extern "C" fn java_lang_stringbuilder_append_string_stringbuilder(
-    _renv: *mut RuntimeEnvironment,
+    renv: *mut RuntimeEnvironment,
     obj: *mut ObjectBody,
     s: *mut ObjectBody,
 ) -> *mut ObjectBody {
+    let renv = unsafe { &mut *renv };
     let string_builder = unsafe { &mut *obj };
     let append_str = unsafe { (&mut *s).get_string_mut() };
-    let string = unsafe {
-        let string = &mut *string_builder
-            .variables
-            .get("str")
-            .unwrap()
-            .get_pointer::<ObjectBody>();
-        string.get_string_mut()
-    };
-    string.push_str(append_str);
+    unsafe {
+        let string = &mut *string_builder.variables.get_mut("str").unwrap();
+        let mut string2 = (&mut *string.get_pointer::<ObjectBody>())
+            .get_string_mut()
+            .clone();
+        string2.push_str(append_str);
+        *string = (&mut *renv.objectheap).create_string_object(string2.to_string(), renv.classheap);
+    }
     obj
 }
 
