@@ -16,7 +16,7 @@ pub unsafe fn native_functions(
     macro_rules! parse_ty {
         (void   ) => { VariableType::Void.   to_llvmty(context) };
         (int    ) => { VariableType::Int.    to_llvmty(context) };
-        (double ) => { VariableType::Double. to_llvmty(context) };
+        (dbl)     => { VariableType::Double. to_llvmty(context) };
         (ptr) => { VariableType::Pointer.to_llvmty(context) };
     }
     macro_rules! define_native_function {
@@ -40,6 +40,7 @@ pub unsafe fn native_functions(
     define_native_function!(ptr,  [ptr, ptr, int ],"java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;");
     define_native_function!(ptr,  [ptr, ptr, ptr], "java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;");
     define_native_function!(ptr,  [ptr, ptr],      "java/lang/StringBuilder.toString:()Ljava/lang/String;");
+    define_native_function!(dbl,  [ptr],           "java/lang/Math.random:()D");
     define_native_function!(ptr,  [ptr, ptr],      "ferrugo_internal_new");
 
     map
@@ -73,6 +74,10 @@ pub unsafe fn add_native_functions(
         (
             "java/lang/StringBuilder.toString:()Ljava/lang/String;",
             java_lang_stringbuilder_tostring_string as *mut libc::c_void,
+        ),
+        (
+            "java/lang/Math.random:()D",
+            java_lang_math_random_d as *mut libc::c_void,
         ),
         (
             "ferrugo_internal_new",
@@ -175,4 +180,10 @@ pub extern "C" fn ferrugo_internal_new(
     let renv = unsafe { &mut *renv };
     let object = unsafe { &mut *renv.objectheap }.create_object(class);
     object.get_pointer::<ObjectBody>()
+}
+
+#[no_mangle]
+pub extern "C" fn java_lang_math_random_d(_renv: *mut RuntimeEnvironment) -> f64 {
+    use rand::random;
+    random::<f64>()
 }

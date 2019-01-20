@@ -1,4 +1,5 @@
-use super::super::super::exec::frame::Variable;
+use super::super::super::exec::frame::{ObjectBody, Variable};
+use super::super::super::gc::gc::GcType;
 
 #[derive(Debug, Clone)]
 pub enum ConstantType {
@@ -117,6 +118,15 @@ impl Constant {
     pub fn get_utf8(&self) -> Option<&String> {
         match self {
             Constant::Utf8 { s, .. } => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn get_java_string_utf8(&self) -> Option<GcType<ObjectBody>> {
+        match self {
+            Constant::Utf8 { java_string, .. } => {
+                Some(java_string.unwrap().get_pointer::<ObjectBody>())
+            }
             _ => None,
         }
     }

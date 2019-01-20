@@ -431,6 +431,12 @@ impl VM {
                     frame.sp += 1;
                     frame.pc += 1;
                 }
+                Inst::d2i => {
+                    self.stack[self.bp + frame.sp - 2] =
+                        Variable::Int(self.stack[self.bp + frame.sp - 2].get_double() as i32);
+                    frame.sp -= 1;
+                    frame.pc += 1;
+                }
                 Inst::i2s => {
                     self.stack[self.bp + frame.sp - 1] =
                         Variable::Short(self.stack[self.bp + frame.sp - 1].get_int() as i16);
@@ -747,6 +753,10 @@ impl VM {
                     self.stack[self.bp + 0].get_pointer::<ObjectBody>(),
                 );
                 self.stack[self.bp + 0] = Variable::Pointer(s as *mut u64);
+            }
+            "java/lang/Math.random:()D" => {
+                self.stack[self.bp + 0] =
+                    Variable::Double(native_functions::java_lang_math_random_d(self.runtime_env));
             }
             e => panic!("{:?}", e),
         }
@@ -1303,6 +1313,7 @@ pub mod Inst {
     pub const ixor:         u8 = 130;
     pub const iinc:         u8 = 132;
     pub const i2d:          u8 = 135;
+    pub const d2i:          u8 = 142;
     pub const i2s:          u8 = 147;
     pub const dcmpl:        u8 = 151;
     pub const dcmpg:        u8 = 152;
@@ -1343,7 +1354,7 @@ pub mod Inst {
                 | astore_3 | iaload | aaload | iastore | aastore | iadd | isub | imul | irem | iand
                 | dadd | dsub | dmul | ddiv | dneg | i2d | i2s | pop | pop2 | dcmpl | dcmpg | dup
                 | ireturn | dreturn | areturn | return_ | monitorenter | aconst_null | arraylength 
-                | ishl | ishr | ixor | dup_x1 => 1,
+                | ishl | ishr | ixor | dup_x1 | d2i => 1,
             dstore | astore | istore | ldc | aload | dload | iload | bipush | newarray => 2,
             sipush | ldc2_w | iinc | invokestatic | invokespecial | invokevirtual | new | anewarray
                 | goto | ifeq | ifne | ifle | ifge | if_icmpne | if_icmpge | if_icmpgt | if_icmpeq | if_acmpne | 

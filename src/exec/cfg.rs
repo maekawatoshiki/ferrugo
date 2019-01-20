@@ -61,6 +61,7 @@ impl CFGMaker {
                 Inst::if_icmpne
                 | Inst::if_icmpge
                 | Inst::if_icmpgt
+                | Inst::if_icmpeq
                 | Inst::ifne
                 | Inst::ifeq
                 | Inst::ifle

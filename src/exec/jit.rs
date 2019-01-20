@@ -382,6 +382,7 @@ impl JIT {
 
         if let Err(e) = compiling_error {
             LLVMDeleteFunction(func);
+            dprintln!("JIT: compiling error");
             return Err(e);
         }
 
@@ -535,6 +536,7 @@ impl JIT {
 
         if let Err(e) = compiling_error {
             LLVMDeleteFunction(func);
+            dprintln!("JIT: compiling error");
             return Err(e);
         }
 
@@ -773,12 +775,13 @@ impl JIT {
                         CString::new("").unwrap().as_ptr(),
                     ))
                 }
-                Inst::if_icmpne | Inst::if_icmpge | Inst::if_icmpgt => {
+                Inst::if_icmpne | Inst::if_icmpge | Inst::if_icmpgt | Inst::if_icmpeq => {
                     let val2 = stack.pop().unwrap();
                     let val1 = stack.pop().unwrap();
                     let cond_val = LLVMBuildICmp(
                         self.builder,
                         match cur_code {
+                            Inst::if_icmpeq => llvm::LLVMIntPredicate::LLVMIntEQ,
                             Inst::if_icmpne => llvm::LLVMIntPredicate::LLVMIntNE,
                             Inst::if_icmpge => llvm::LLVMIntPredicate::LLVMIntSGE,
                             Inst::if_icmpgt => llvm::LLVMIntPredicate::LLVMIntSGT,
@@ -905,6 +908,46 @@ impl JIT {
                         CString::new("dmul").unwrap().as_ptr(),
                     ));
                 }
+                Inst::iand => {
+                    let val2 = stack.pop().unwrap();
+                    let val1 = stack.pop().unwrap();
+                    stack.push(LLVMBuildAnd(
+                        self.builder,
+                        val1,
+                        val2,
+                        CString::new("iand").unwrap().as_ptr(),
+                    ));
+                }
+                Inst::ixor => {
+                    let val2 = stack.pop().unwrap();
+                    let val1 = stack.pop().unwrap();
+                    stack.push(LLVMBuildXor(
+                        self.builder,
+                        val1,
+                        val2,
+                        CString::new("ixor").unwrap().as_ptr(),
+                    ));
+                }
+                Inst::ishl => {
+                    let val2 = stack.pop().unwrap();
+                    let val1 = stack.pop().unwrap();
+                    stack.push(LLVMBuildShl(
+                        self.builder,
+                        val1,
+                        val2,
+                        CString::new("ishl").unwrap().as_ptr(),
+                    ));
+                }
+                Inst::ishr => {
+                    let val2 = stack.pop().unwrap();
+                    let val1 = stack.pop().unwrap();
+                    stack.push(LLVMBuildAShr(
+                        self.builder,
+                        val1,
+                        val2,
+                        CString::new("ishr").unwrap().as_ptr(),
+                    ));
+                }
                 Inst::dcmpl | Inst::dcmpg => self.gen_dcmp(&mut stack)?,
                 Inst::bipush => {
                     stack.push(llvm_const_int32(self.context, code[pc + 1] as i8 as u64));
@@ -924,20 +967,15 @@ impl JIT {
                             LLVMFloatTypeInContext(self.context),
                             f as f64,
                         )),
-                        Constant::String { string_index } => {
-                            let string = cur_class
-                                .get_utf8_from_const_pool(string_index as usize)
+                        Constant::String { string_index } => stack.push(
+                            (&mut *self.cur_class.unwrap())
+                                .get_java_string_utf8_from_const_pool(
+                                    (&mut *self.runtime_env).objectheap,
+                                    string_index as usize,
+                                )
                                 .unwrap()
-                                .to_owned();
-                            // TODO: Constant string refers to constant pool,
-                            // so should not create a new string object.
-                            // "aaa" == "aaa" // => true
-                            stack.push(
-                                (&mut *(&mut *self.runtime_env).objectheap)
-                                    .create_string_object(string, cur_class.classheap.unwrap())
-                                    .to_llvm_val(self.context),
-                            )
-                        }
+                                .to_llvm_val(self.context),
+                        ),
                         _ => return Err(Error::CouldntCompile),
                     };
                 }
@@ -1019,9 +1057,30 @@ impl JIT {
                     );
                     stack.push(ret);
                 }
+                Inst::pop => {
+                    stack.pop().unwrap();
+                }
                 Inst::dup => {
                     let val = stack.last().clone().unwrap();
                     stack.push(*val);
+                }
+                Inst::i2d => {
+                    let val = stack.pop().unwrap();
+                    stack.push(LLVMBuildSIToFP(
+                        self.builder,
+                        val,
+                        VariableType::Double.to_llvmty(self.context),
+                        CString::new("i2d").unwrap().as_ptr(),
+                    ));
+                }
+                Inst::d2i => {
+                    let val = stack.pop().unwrap();
+                    stack.push(LLVMBuildFPToSI(
+                        self.builder,
+                        val,
+                        VariableType::Int.to_llvmty(self.context),
+                        CString::new("d2i").unwrap().as_ptr(),
+                    ));
                 }
                 Inst::invokespecial => {}
                 Inst::invokestatic | Inst::invokevirtual => {

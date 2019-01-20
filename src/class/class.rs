@@ -201,7 +201,7 @@ impl JITInfoManager {
     }
 
     pub fn inc_count_of_loop_exec(&mut self, start: usize, end: usize) {
-        let (_, count, _) = self.loop_count.entry(start).or_insert((end, 1, None));
+        let (_, count, _) = self.loop_count.entry(start).or_insert((end, 0, None));
         *count += 1;
     }
 
@@ -212,12 +212,12 @@ impl JITInfoManager {
 
     pub fn loop_executed_enough_times(&self, start: usize) -> bool {
         let (_, count, _) = self.loop_count.get(&start).unwrap();
-        *count > 5
+        *count > 7
     }
 
     pub fn func_executed_enough_times(&self) -> bool {
         let (count, _) = &self.whole_method;
-        *count > 3
+        *count > 4
     }
 
     pub fn get_jit_loop(&mut self, start: usize) -> &mut Option<LoopJITExecInfo> {
