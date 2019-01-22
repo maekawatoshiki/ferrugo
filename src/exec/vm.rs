@@ -38,10 +38,10 @@ pub struct VM {
 
 impl VM {
     pub fn new(classheap: GcType<ClassHeap>, objectheap: GcType<ObjectHeap>) -> Self {
-        let runtime_env = Box::into_raw(Box::new(RuntimeEnvironment {
+        let runtime_env = gc::new(RuntimeEnvironment {
             objectheap,
             classheap,
-        }));
+        });
         VM {
             classheap,
             objectheap,
@@ -354,6 +354,14 @@ impl VM {
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
+                Inst::idiv => {
+                    self.stack[self.bp + frame.sp - 2] = Variable::Int(
+                        self.stack[self.bp + frame.sp - 2].get_int()
+                            / self.stack[self.bp + frame.sp - 1].get_int(),
+                    );
+                    frame.sp -= 1;
+                    frame.pc += 1;
+                }
                 Inst::dmul => {
                     self.stack[self.bp + frame.sp - 4] = Variable::Double(
                         self.stack[self.bp + frame.sp - 4].get_double()
@@ -585,6 +593,23 @@ impl VM {
                         dst,
                         frame.pc + 3,
                         if val == 0 as *mut u64 {
+                            frame.pc = dst;
+                        } else {
+                            frame.pc += 3;
+                        }
+                    );
+                }
+                Inst::ifnonnull => {
+                    let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
+                    let val = self.stack[self.bp + frame.sp - 1].get_pointer::<u64>();
+                    frame.sp -= 1;
+                    let dst = (frame.pc as isize + branch as isize) as usize;
+                    loop_jit!(
+                        frame,
+                        dst < frame.pc,
+                        dst,
+                        frame.pc + 3,
+                        if val != 0 as *mut u64 {
                             frame.pc = dst;
                         } else {
                             frame.pc += 3;
@@ -1176,6 +1201,8 @@ impl VM {
 
         self.stack[self.bp + frame.sp] = object;
         frame.sp += 1;
+
+        gc::mark_and_sweep(self);
     }
 }
 
@@ -1217,6 +1244,8 @@ pub fn load_class_with_filename(
     objectheap: GcType<ObjectHeap>,
     filename: &str,
 ) -> GcType<Class> {
+    gc::disable();
+
     let class_ptr = gc::new(Class::new());
 
     expect!(
@@ -1259,6 +1288,8 @@ pub fn load_class_with_filename(
 
         vm.run();
     }
+
+    gc::enable();
 
     class_ptr
 }
@@ -1339,6 +1370,7 @@ pub mod Inst {
     pub const dsub:         u8 = 103;
     pub const imul:         u8 = 104;
     pub const dmul:         u8 = 107;
+    pub const idiv:         u8 = 108;
     pub const ddiv:         u8 = 111;
     pub const irem:         u8 = 112;
     pub const dneg:         u8 = 119;
@@ -1380,7 +1412,7 @@ pub mod Inst {
     pub const arraylength:  u8 = 190;
     pub const monitorenter: u8 = 194;
     pub const ifnull:       u8 = 198;
-    // pub const ifnonnull:    u8 = 199;
+    pub const ifnonnull:    u8 = 199;
     
     pub fn get_inst_size(inst: Code) -> usize {
         match inst {
@@ -1388,14 +1420,14 @@ pub mod Inst {
                 | dconst_1 | istore_0 | istore_1 | istore_2 | istore_3 | iload_0 | iload_1 | iload_2
                 | iload_3 | dload_0 | dload_1 | dload_2 | dload_3 | aload_0 | aload_1 | aload_2
                 | aload_3 | dstore_0 | dstore_1 | dstore_2 | dstore_3 | astore_0 | astore_1 | astore_2
-                | astore_3 | iaload | aaload | iastore | aastore | iadd | isub | imul | irem | iand
+                | astore_3 | iaload | aaload | iastore | aastore | iadd | isub | imul | irem | iand | idiv
                 | dadd | dsub | dmul | ddiv | dneg | i2d | i2s | pop | pop2 | dcmpl | dcmpg | dup
                 | ireturn | dreturn | areturn | return_ | monitorenter | aconst_null | arraylength 
                 | ishl | ishr | ixor | dup_x1 | d2i => 1,
             dstore | astore | istore | ldc | aload | dload | iload | bipush | newarray => 2,
             sipush | ldc2_w | iinc | invokestatic | invokespecial | invokevirtual | new | anewarray
                 | goto | ifeq | iflt | ifne | ifle | ifge | if_icmpne | if_icmpge | if_icmpgt | if_icmpeq | if_acmpne | 
-                ifnull | 
+                ifnull | ifnonnull | 
                 getstatic | putstatic | getfield | putfield => 3, 
             e => unimplemented!("{}", e),
         }

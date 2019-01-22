@@ -72,7 +72,7 @@ impl ObjectHeap {
             elements: {
                 let mut elements = vec![];
                 for _ in 0..size {
-                    elements.push(Variable::Pointer(0 as *mut u64));
+                    elements.push(Variable::Int(0));
                 }
                 elements
             },

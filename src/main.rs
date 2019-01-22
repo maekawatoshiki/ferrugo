@@ -61,7 +61,7 @@ fn run_file(filename: &str) {
     vm.run();
     dprintln!("---- exec output end ------");
 
-    dprintln!("stack trace: {:?}", &vm.stack[0..16]);
+    dprintln!("stack trace: {:?}", &vm.stack[0..128]);
 }
 
 #[test]
