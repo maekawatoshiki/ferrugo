@@ -4,7 +4,7 @@ use super::super::class::classfile::{method, method::MethodInfo};
 use super::super::class::classheap::ClassHeap;
 use super::super::gc::{gc, gc::GcType};
 use super::cfg::CFGMaker;
-use super::frame::{AType, Array, Frame, ObjectBody, Variable};
+use super::frame::{AType, Array, Frame, ObjectBody, QuickInfo, Variable, VariableType};
 use super::native_functions;
 use super::objectheap::ObjectHeap;
 use super::{jit, jit::JIT};
@@ -34,6 +34,7 @@ pub struct VM {
     pub stack: Vec<Variable>,
     pub bp: usize,
     pub jit: JIT,
+    pub quick_table: Vec<QuickInfo>,
 }
 
 impl VM {
@@ -60,6 +61,7 @@ impl VM {
             },
             bp: 0,
             jit: unsafe { JIT::new(runtime_env) },
+            quick_table: vec![],
         }
     }
 }
@@ -87,7 +89,7 @@ impl VM {
             frame.method_info.descriptor_index as usize,
         );
 
-        let code = frame.method_info.code.as_ref().unwrap().code.clone();
+        let mut code = frame.method_info.code.as_ref().unwrap().code.clone();
 
         macro_rules! loop_jit {
             ($frame:expr, $do_compile:expr, $start:expr, $end:expr, $failed:expr) => {
@@ -222,6 +224,12 @@ impl VM {
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
+                Inst::daload => {
+                    let arrayref = self.stack[self.bp + frame.sp - 2].get_pointer::<Array>();
+                    let index = self.stack[self.bp + frame.sp - 1].get_int() as usize;
+                    self.stack[self.bp + frame.sp - 2] = unsafe { &*arrayref }.elements[index];
+                    frame.pc += 1;
+                }
                 Inst::sipush => {
                     let val = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                     self.stack[self.bp + frame.sp] = Variable::Short(val);
@@ -307,6 +315,14 @@ impl VM {
                     let value = self.stack[self.bp + frame.sp - 1].clone();
                     unsafe { &mut *arrayref }.elements[index] = value;
                     frame.sp -= 3;
+                    frame.pc += 1;
+                }
+                Inst::dastore => {
+                    let arrayref = self.stack[self.bp + frame.sp - 4].get_pointer::<Array>();
+                    let index = self.stack[self.bp + frame.sp - 3].get_int() as usize;
+                    let value = self.stack[self.bp + frame.sp - 2];
+                    unsafe { &mut *arrayref }.elements[index] = value;
+                    frame.sp -= 4;
                     frame.pc += 1;
                 }
                 Inst::bipush => {
@@ -450,9 +466,27 @@ impl VM {
                         Variable::Short(self.stack[self.bp + frame.sp - 1].get_int() as i16);
                     frame.pc += 1;
                 }
-                Inst::invokestatic => self.run_invoke_static(true),
-                Inst::invokespecial => self.run_invoke_static(false),
-                Inst::invokevirtual => self.run_invoke_static(false),
+                Inst::invokestatic => {
+                    let a = self.run_invoke_static(true);
+                    if let Some(info) = a {
+                        let frame = frame!();
+                        let code2 = &mut frame.method_info.code.as_mut().unwrap().code;
+                        code2[frame.pc - 3] = Inst::invokestatic_quick;
+                        code2[frame.pc - 2] = 0;
+                        code2[frame.pc - 1] = self.quick_table.len() as u8;
+                        code[frame.pc - 3] = Inst::invokestatic_quick;
+                        code[frame.pc - 2] = 0;
+                        code[frame.pc - 1] = self.quick_table.len() as u8;
+                        self.quick_table.push(info);
+                    }
+                }
+                Inst::invokespecial => {
+                    self.run_invoke_static(false);
+                }
+                Inst::invokevirtual => {
+                    self.run_invoke_static(false);
+                }
+                Inst::invokestatic_quick => self.run_invoke_static_quick(),
                 Inst::new => self.run_new(),
                 Inst::newarray => self.run_new_array(),
                 Inst::anewarray => self.run_new_obj_array(),
@@ -473,6 +507,47 @@ impl VM {
                     self.stack[self.bp + frame.sp + 1] = val2;
                     self.stack[self.bp + frame.sp + 2] = val1;
                     frame.sp += 3;
+                    frame.pc += 1;
+                }
+                Inst::dup2_x1 => {
+                    let form2 = match self.stack[self.bp + frame.sp - 2] {
+                        Variable::Double(_) => true,
+                        _ => false,
+                    };
+                    if form2 {
+                        let val1 = self.stack[self.bp + frame.sp - 2];
+                        let val2 = self.stack[self.bp + frame.sp - 3];
+                        self.stack[self.bp + frame.sp - 3] = val1;
+                        self.stack[self.bp + frame.sp - 1] = val2;
+                        self.stack[self.bp + frame.sp + 0] = val1;
+                    } else {
+                        let val1 = self.stack[self.bp + frame.sp - 1];
+                        let val2 = self.stack[self.bp + frame.sp - 2];
+                        let val3 = self.stack[self.bp + frame.sp - 3];
+                        self.stack[self.bp + frame.sp - 3] = val2;
+                        self.stack[self.bp + frame.sp - 2] = val1;
+                        self.stack[self.bp + frame.sp - 1] = val3;
+                        self.stack[self.bp + frame.sp + 0] = val2;
+                        self.stack[self.bp + frame.sp + 1] = val1;
+                    }
+                    frame.sp += 2;
+                    frame.pc += 1;
+                }
+                Inst::dup2 => {
+                    let form2 = match self.stack[self.bp + frame.sp - 2] {
+                        Variable::Double(_) => true,
+                        _ => false,
+                    };
+                    if form2 {
+                        let val = self.stack[self.bp + frame.sp - 2];
+                        self.stack[self.bp + frame.sp] = val;
+                    } else {
+                        let val1 = self.stack[self.bp + frame.sp - 1];
+                        let val2 = self.stack[self.bp + frame.sp - 2];
+                        self.stack[self.bp + frame.sp + 0] = val2;
+                        self.stack[self.bp + frame.sp + 1] = val1;
+                    }
+                    frame.sp += 2;
                     frame.pc += 1;
                 }
                 Inst::goto => {
@@ -680,6 +755,24 @@ impl VM {
                         }
                     );
                 }
+                Inst::if_icmplt => {
+                    let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
+                    let val2 = self.stack[self.bp + frame.sp - 1].get_int();
+                    let val1 = self.stack[self.bp + frame.sp - 2].get_int();
+                    frame.sp -= 2;
+                    let dst = (frame.pc as isize + branch as isize) as usize;
+                    loop_jit!(
+                        frame,
+                        dst < frame.pc,
+                        dst,
+                        frame.pc + 3,
+                        if val1 < val2 {
+                            frame.pc = dst;
+                        } else {
+                            frame.pc += 3;
+                        }
+                    );
+                }
                 Inst::if_acmpne => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
                     let val2 = self.stack[self.bp + frame.sp - 1].get_pointer::<u64>();
@@ -815,7 +908,50 @@ impl VM {
             }
             "java/lang/Math.random:()D" => {
                 self.stack[self.bp + 0] =
-                    Variable::Double(native_functions::java_lang_math_random_d(self.runtime_env));
+                    Variable::Double(native_functions::java_lang_math_random_d(self.runtime_env))
+            }
+            "java/lang/Math.sin:(D)D" => {
+                self.stack[self.bp + 0] =
+                    Variable::Double(native_functions::java_lang_math_sin_d_d(
+                        self.runtime_env,
+                        self.stack[self.bp + 0].get_double(),
+                    ))
+            }
+            "java/lang/Math.cos:(D)D" => {
+                self.stack[self.bp + 0] =
+                    Variable::Double(native_functions::java_lang_math_cos_d_d(
+                        self.runtime_env,
+                        self.stack[self.bp + 0].get_double(),
+                    ))
+            }
+            "java/lang/Math.tan:(D)D" => {
+                self.stack[self.bp + 0] =
+                    Variable::Double(native_functions::java_lang_math_tan_d_d(
+                        self.runtime_env,
+                        self.stack[self.bp + 0].get_double(),
+                    ))
+            }
+            "java/lang/Math.sqrt:(D)D" => {
+                self.stack[self.bp + 0] =
+                    Variable::Double(native_functions::java_lang_math_sqrt_d_d(
+                        self.runtime_env,
+                        self.stack[self.bp + 0].get_double(),
+                    ))
+            }
+            "java/lang/Math.pow:(DD)D" => {
+                self.stack[self.bp + 0] =
+                    Variable::Double(native_functions::java_lang_math_pow_dd_d(
+                        self.runtime_env,
+                        self.stack[self.bp + 0].get_double(),
+                        self.stack[self.bp + 2].get_double(),
+                    ))
+            }
+            "java/lang/Math.abs:(D)D" => {
+                self.stack[self.bp + 0] =
+                    Variable::Double(native_functions::java_lang_math_abs_d_d(
+                        self.runtime_env,
+                        self.stack[self.bp + 0].get_double(),
+                    ))
             }
             e => panic!("{:?}", e),
         }
@@ -842,19 +978,23 @@ impl VM {
             &frame_class.classfile.constant_pool[index],
             name_and_type_index
         );
-        let name_index = fld!(
+        let (name_index, descriptor_index) = fld!(
             Constant::NameAndTypeInfo,
             &frame_class.classfile.constant_pool[name_and_type_index],
-            name_index
+            name_index,
+            descriptor_index
         );
         let name = frame_class.classfile.constant_pool[name_index]
+            .get_utf8()
+            .unwrap();
+        let descriptor = frame_class.classfile.constant_pool[descriptor_index]
             .get_utf8()
             .unwrap();
 
         let value = objectref.variables.get(name).unwrap();
 
-        self.stack[self.bp + frame.sp] = value.clone();
-        frame.sp += 1;
+        self.stack[self.bp + frame.sp] = *value;
+        frame.sp += if descriptor.ends_with("D") { 2 } else { 1 };
     }
 
     fn run_put_field(&mut self) {
@@ -869,24 +1009,29 @@ impl VM {
         };
         frame.pc += 3;
 
-        let objectref =
-            unsafe { &mut *self.stack[self.bp + frame.sp - 2].get_pointer::<ObjectBody>() };
-        let value = self.stack[self.bp + frame.sp - 1].clone();
-        frame.sp -= 2;
-
         let name_and_type_index = fld!(
             Constant::FieldrefInfo,
             &frame_class.classfile.constant_pool[index],
             name_and_type_index
         );
-        let name_index = fld!(
+        let (name_index, descriptor_index) = fld!(
             Constant::NameAndTypeInfo,
             &frame_class.classfile.constant_pool[name_and_type_index],
-            name_index
+            name_index,
+            descriptor_index
         );
         let name = frame_class.classfile.constant_pool[name_index]
             .get_utf8()
             .unwrap();
+        let descriptor = frame_class.classfile.constant_pool[descriptor_index]
+            .get_utf8()
+            .unwrap();
+
+        let i = if descriptor.ends_with("D") { 2 } else { 1 };
+        let value = self.stack[self.bp + frame.sp - i];
+        let objectref =
+            unsafe { &mut *self.stack[self.bp + frame.sp - (i + 1)].get_pointer::<ObjectBody>() };
+        frame.sp -= i + 1;
 
         objectref.variables.insert(name.clone(), value);
     }
@@ -981,7 +1126,7 @@ impl VM {
         unsafe { &mut *class }.put_static_variable(name.as_str(), val)
     }
 
-    fn run_invoke_static(&mut self, is_invoke_static: bool) {
+    fn run_invoke_static(&mut self, is_invoke_static: bool) -> Option<QuickInfo> {
         #[rustfmt::skip]
         macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
 
@@ -1029,14 +1174,14 @@ impl VM {
             self.run_jit_compiled_func(&exec_method, former_sp, descriptor.as_str(), virtual_class)
         } {
             frame!().sp = sp;
-            return;
+            return None;
         }
 
         self.frame_stack.push(Frame::new());
 
         let frame = frame!();
 
-        frame.method_info = exec_method;
+        frame.method_info = exec_method.clone();
 
         // https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html#jvms-4.1
         // > The ACC_SUPER flag exists for backward compatibility with code compiled by older
@@ -1073,6 +1218,74 @@ impl VM {
             } else {
                 1
             };
+        }
+
+        if is_invoke_static {
+            Some(QuickInfo {
+                method: exec_method,
+                class: virtual_class,
+                params_num,
+                ret_ty: VariableType::parse_return_type(descriptor).unwrap(),
+            })
+        } else {
+            None
+        }
+    }
+
+    fn run_invoke_static_quick(&mut self) {
+        #[rustfmt::skip]
+        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
+        let quick_info = {
+            let frame = frame!();
+            let code = &frame.method_info.code.as_ref().unwrap().code;
+            let index = ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize;
+            self.quick_table[index].clone()
+        };
+        frame!().pc += 3;
+
+        let former_sp = frame!().sp as usize;
+
+        self.frame_stack.push(Frame::new());
+
+        let frame = frame!();
+
+        frame.method_info = quick_info.method;
+
+        // https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html#jvms-4.1
+        // > The ACC_SUPER flag exists for backward compatibility with code compiled by older
+        // > compilers for the Java programming language. In Oracle’s JDK prior to release 1.0.2, the
+        // > compiler generated ClassFile access_flags in which the flag now representing ACC_SUPER
+        // > had no assigned meaning, and Oracle's Java Virtual Machine implementation ignored the
+        // > flag if it was set.
+        frame.class = Some(quick_info.class);
+
+        let params_num = quick_info.params_num;
+        let mut sp_start = params_num;
+        if frame.method_info.access_flags & 0x0100 > 0 {
+            // method_info.access_flags & ACC_NATIVE => do not add max_locals
+        } else {
+            let max_locals = frame.method_info.code.as_ref().unwrap().max_locals;
+            sp_start += max_locals as usize;
+        }
+
+        frame.sp = sp_start;
+        let bp_offset = former_sp - params_num;
+        self.bp += bp_offset;
+
+        self.run();
+
+        self.bp -= bp_offset;
+        self.frame_stack.pop();
+
+        let mut frame = frame!();
+        frame.sp -= params_num;
+
+        if quick_info.ret_ty != VariableType::Void {
+            // Returns a value
+            frame.sp += match quick_info.ret_ty {
+                VariableType::Double | VariableType::Long => 2,
+                _ => 1,
+            }
         }
     }
 
@@ -1257,21 +1470,18 @@ pub fn load_class_with_filename(
 
     let mut vm = VM::new(classheap, objectheap);
     let object = unsafe { &mut *objectheap }.create_object(class_ptr);
-    let (class, method) = expect!(
-        unsafe { &*class_ptr }.get_method("<init>", "()V"),
-        "Couldn't find <init>"
-    );
     vm.stack[0] = object;
-    vm.frame_stack[0].class = Some(class);
-    vm.frame_stack[0].method_info = method;
-    vm.frame_stack[0].sp = vm.frame_stack[0]
-        .method_info
-        .code
-        .as_ref()
-        .unwrap()
-        .max_locals as usize;
-
-    vm.run();
+    if let Some((class, method)) = unsafe { &*class_ptr }.get_method("<init>", "()V") {
+        vm.frame_stack[0].class = Some(class);
+        vm.frame_stack[0].method_info = method;
+        vm.frame_stack[0].sp = vm.frame_stack[0]
+            .method_info
+            .code
+            .as_ref()
+            .unwrap()
+            .max_locals as usize;
+        vm.run();
+    }
 
     // Initialization with ``static { ... }``
     if let Some((class, method)) = unsafe { &*class_ptr }.get_method("<clinit>", "()V") {
@@ -1285,7 +1495,6 @@ pub fn load_class_with_filename(
             .as_ref()
             .unwrap()
             .max_locals as usize;
-
         vm.run();
     }
 
@@ -1347,6 +1556,7 @@ pub mod Inst {
     pub const dload_2:      u8 = 40;
     pub const dload_3:      u8 = 41;
     pub const iaload:       u8 = 46;
+    pub const daload:       u8 = 49;
     pub const aaload:       u8 = 50;
     pub const dstore:       u8 = 57;
     pub const astore:       u8 = 58;
@@ -1359,11 +1569,14 @@ pub mod Inst {
     pub const astore_2:     u8 = 77;
     pub const astore_3:     u8 = 78;
     pub const iastore:      u8 = 79;
+    pub const dastore:      u8 = 82;
     pub const aastore:      u8 = 83;
     pub const pop:          u8 = 87;
     pub const pop2:         u8 = 88;
     pub const dup:          u8 = 89;
     pub const dup_x1:       u8 = 90;
+    pub const dup2:         u8 = 92;
+    pub const dup2_x1:      u8 = 93;
     pub const iadd:         u8 = 96;
     pub const dadd:         u8 = 99;
     pub const isub:         u8 = 100;
@@ -1393,6 +1606,7 @@ pub mod Inst {
     pub const if_icmpne:    u8 = 160;
     pub const if_icmpge:    u8 = 162;
     pub const if_icmpgt:    u8 = 163;
+    pub const if_icmplt:    u8 = 164;
     pub const if_acmpne:    u8 = 166;
     pub const goto:         u8 = 167;
     pub const ireturn:      u8 = 172;
@@ -1413,6 +1627,8 @@ pub mod Inst {
     pub const monitorenter: u8 = 194;
     pub const ifnull:       u8 = 198;
     pub const ifnonnull:    u8 = 199;
+    // Quick opcodes (faster)
+    pub const invokestatic_quick: u8 = 203;
     
     pub fn get_inst_size(inst: Code) -> usize {
         match inst {
@@ -1420,15 +1636,16 @@ pub mod Inst {
                 | dconst_1 | istore_0 | istore_1 | istore_2 | istore_3 | iload_0 | iload_1 | iload_2
                 | iload_3 | dload_0 | dload_1 | dload_2 | dload_3 | aload_0 | aload_1 | aload_2
                 | aload_3 | dstore_0 | dstore_1 | dstore_2 | dstore_3 | astore_0 | astore_1 | astore_2
-                | astore_3 | iaload | aaload | iastore | aastore | iadd | isub | imul | irem | iand | idiv
+                | astore_3 | iaload | aaload | daload | iastore | aastore | dastore | iadd | isub | imul | irem | iand | idiv
                 | dadd | dsub | dmul | ddiv | dneg | i2d | i2s | pop | pop2 | dcmpl | dcmpg | dup
                 | ireturn | dreturn | areturn | return_ | monitorenter | aconst_null | arraylength 
-                | ishl | ishr | ixor | dup_x1 | d2i => 1,
+                | ishl | ishr | ixor | dup_x1 | d2i | dup2 | dup2_x1=> 1,
             dstore | astore | istore | ldc | aload | dload | iload | bipush | newarray => 2,
-            sipush | ldc2_w | iinc | invokestatic | invokespecial | invokevirtual | new | anewarray
-                | goto | ifeq | iflt | ifne | ifle | ifge | if_icmpne | if_icmpge | if_icmpgt | if_icmpeq | if_acmpne | 
+            sipush | ldc2_w | iinc | invokestatic | invokespecial | invokevirtual | new | anewarray 
+                | goto | ifeq | iflt | ifne | ifle | ifge | if_icmpne | if_icmpge | if_icmpgt | if_icmpeq | if_acmpne | if_icmplt |
                 ifnull | ifnonnull | 
-                getstatic | putstatic | getfield | putfield => 3, 
+                getstatic | putstatic | getfield | putfield 
+                | invokestatic_quick => 3, 
             e => unimplemented!("{}", e),
         }
     }

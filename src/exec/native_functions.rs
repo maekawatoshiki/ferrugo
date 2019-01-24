@@ -41,6 +41,12 @@ pub unsafe fn native_functions(
     define_native_function!(ptr,  [ptr, ptr, ptr], "java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;");
     define_native_function!(ptr,  [ptr, ptr],      "java/lang/StringBuilder.toString:()Ljava/lang/String;");
     define_native_function!(dbl,  [ptr],           "java/lang/Math.random:()D");
+    define_native_function!(dbl,  [ptr, dbl],      "java/lang/Math.sqrt:(D)D");
+    define_native_function!(dbl,  [ptr, dbl],      "java/lang/Math.sin:(D)D");
+    define_native_function!(dbl,  [ptr, dbl],      "java/lang/Math.cos:(D)D");
+    define_native_function!(dbl,  [ptr, dbl],      "java/lang/Math.tan:(D)D");
+    define_native_function!(dbl,  [ptr, dbl, dbl], "java/lang/Math.pow:(DD)D");
+    define_native_function!(dbl,  [ptr, dbl],      "java/lang/Math.abs:(D)D");
     define_native_function!(ptr,  [ptr, ptr],      "ferrugo_internal_new");
 
     map
@@ -78,6 +84,14 @@ pub unsafe fn add_native_functions(
         (
             "java/lang/Math.random:()D",
             java_lang_math_random_d as *mut libc::c_void,
+        ),
+        (
+            "java/lang/Math.sin:(D)D",
+            java_lang_math_sin_d_d as *mut libc::c_void,
+        ),
+        (
+            "java/lang/Math.pow:(DD)D",
+            java_lang_math_pow_dd_d as *mut libc::c_void,
         ),
         (
             "ferrugo_internal_new",
@@ -185,4 +199,28 @@ pub extern "C" fn ferrugo_internal_new(
 pub extern "C" fn java_lang_math_random_d(_renv: *mut RuntimeEnvironment) -> f64 {
     use rand::random;
     random::<f64>()
+}
+#[no_mangle]
+pub extern "C" fn java_lang_math_sqrt_d_d(_renv: *mut RuntimeEnvironment, x: f64) -> f64 {
+    x.sqrt()
+}
+#[no_mangle]
+pub extern "C" fn java_lang_math_sin_d_d(_renv: *mut RuntimeEnvironment, x: f64) -> f64 {
+    x.sin()
+}
+#[no_mangle]
+pub extern "C" fn java_lang_math_cos_d_d(_renv: *mut RuntimeEnvironment, x: f64) -> f64 {
+    x.cos()
+}
+#[no_mangle]
+pub extern "C" fn java_lang_math_tan_d_d(_renv: *mut RuntimeEnvironment, x: f64) -> f64 {
+    x.tan()
+}
+#[no_mangle]
+pub extern "C" fn java_lang_math_abs_d_d(_renv: *mut RuntimeEnvironment, x: f64) -> f64 {
+    x.abs()
+}
+#[no_mangle]
+pub extern "C" fn java_lang_math_pow_dd_d(_renv: *mut RuntimeEnvironment, x: f64, y: f64) -> f64 {
+    x.powf(y)
 }

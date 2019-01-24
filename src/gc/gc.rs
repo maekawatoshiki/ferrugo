@@ -23,13 +23,13 @@ thread_local!(static GC_MEM: RefCell<GcStateMap> = {
 
 type GcStateMap = FxHashMap<*mut u64, GcTargetInfo>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Copy)]
 enum GcState {
     Marked,
     Unmarked,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 enum GcTargetType {
     Array,
     Object,
@@ -40,7 +40,7 @@ enum GcTargetType {
     Unknown,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 struct GcTargetInfo {
     pub ty: GcTargetType,
     pub state: GcState,
@@ -67,7 +67,7 @@ pub fn new<T>(val: T) -> GcType<T> {
     let ptr = Box::into_raw(Box::new(val));
     let info = GcTargetInfo::new_unmarked(unsafe { std::intrinsics::type_name::<T>() });
     let size = get_size(ptr as *mut u64, &info);
-    ALLOCATED_MEM_SIZE_BYTE.fetch_add(size, Ordering::SeqCst);
+    ALLOCATED_MEM_SIZE_BYTE.fetch_add(size, Ordering::Relaxed);
     GC_MEM.with(|m| {
         m.borrow_mut().insert(ptr as *mut u64, info);
     });
@@ -88,7 +88,7 @@ pub fn mark_and_sweep(vm: &VM) {
     }
 
     fn over16kb_allocated() -> bool {
-        ALLOCATED_MEM_SIZE_BYTE.load(Ordering::SeqCst) > 16 * 1024
+        ALLOCATED_MEM_SIZE_BYTE.load(Ordering::Relaxed) > 10 * 1024 * 1024
     }
 
     if !over16kb_allocated() {
@@ -125,7 +125,12 @@ fn free(m: &GcStateMap) {
                 .unwrap_or(false);
             if !is_marked {
                 let released_size = free_ptr(*p, info);
-                ALLOCATED_MEM_SIZE_BYTE.fetch_sub(released_size, Ordering::SeqCst);
+                if ALLOCATED_MEM_SIZE_BYTE.load(Ordering::Relaxed) as isize - released_size as isize
+                    > 0
+                {
+                    // println!("mem {}", ALLOCATED_MEM_SIZE_BYTE.load(Ordering::Relaxed));
+                    ALLOCATED_MEM_SIZE_BYTE.fetch_sub(released_size, Ordering::Relaxed);
+                }
             }
             is_marked
         });
@@ -168,7 +173,16 @@ fn trace_ptr(ptr: *mut u64, m: &mut GcStateMap) {
         return;
     }
 
+    if m.contains_key(&ptr) {
+        return;
+    }
+
     let mut info = GC_MEM.with(|m| m.borrow().get(&ptr).unwrap().clone());
+
+    m.insert(ptr, {
+        info.state = GcState::Marked;
+        info
+    });
 
     match info.ty {
         GcTargetType::Array => {
@@ -198,11 +212,6 @@ fn trace_ptr(ptr: *mut u64, m: &mut GcStateMap) {
         }
         GcTargetType::Unknown => panic!(),
     };
-
-    m.insert(ptr, {
-        info.state = GcState::Marked;
-        info
-    });
 }
 
 fn free_ptr(ptr: *mut u64, info: &GcTargetInfo) -> usize {

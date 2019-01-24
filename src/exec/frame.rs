@@ -22,6 +22,23 @@ impl Frame {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct QuickInfo {
+    pub method: MethodInfo,
+    pub class: GcType<Class>,
+    pub params_num: usize,
+    pub ret_ty: VariableType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum VariableType {
+    Void,
+    Int,
+    Pointer,
+    Double,
+    Long,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum Variable {
     Byte(i8),
@@ -131,5 +148,38 @@ impl ObjectBody {
             .string
             .as_mut()
             .unwrap()
+    }
+}
+
+impl VariableType {
+    pub fn parse_return_type(descriptor: &str) -> Option<VariableType> {
+        // https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html#jvms-4.3.2
+        let mut i = 1;
+
+        while i < descriptor.len() {
+            let c = descriptor.chars().nth(i).unwrap();
+            i += 1;
+            if c == ')' {
+                break;
+            }
+        }
+
+        let c = descriptor.chars().nth(i).unwrap();
+        let ty = match c {
+            'L' => {
+                while descriptor.chars().nth(i).unwrap() != ';' {
+                    i += 1
+                }
+                VariableType::Pointer
+            }
+            'V' => VariableType::Void,
+            'I' => VariableType::Int,
+            'Z' => VariableType::Int,
+            'J' => VariableType::Long,
+            'D' => VariableType::Double,
+            _ => return None,
+        };
+
+        Some(ty)
     }
 }
