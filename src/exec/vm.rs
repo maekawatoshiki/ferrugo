@@ -4,7 +4,7 @@ use super::super::class::classfile::{method, method::MethodInfo};
 use super::super::class::classheap::ClassHeap;
 use super::super::gc::{gc, gc::GcType};
 use super::cfg::CFGMaker;
-use super::frame::{AType, Array, Frame, ObjectBody, QuickInfo, Variable, VariableType};
+use super::frame::{AType, Array, Frame, ObjectBody, Variable};
 use super::native_functions;
 use super::objectheap::ObjectHeap;
 use super::{jit, jit::JIT};
@@ -34,7 +34,6 @@ pub struct VM {
     pub stack: Vec<Variable>,
     pub bp: usize,
     pub jit: JIT,
-    pub quick_table: Vec<QuickInfo>,
 }
 
 impl VM {
@@ -61,7 +60,6 @@ impl VM {
             },
             bp: 0,
             jit: unsafe { JIT::new(runtime_env) },
-            quick_table: vec![],
         }
     }
 }
@@ -89,7 +87,7 @@ impl VM {
             frame.method_info.descriptor_index as usize,
         );
 
-        let mut code = frame.method_info.code.as_ref().unwrap().code.clone();
+        let code = frame.method_info.code.as_ref().unwrap().code.clone();
 
         macro_rules! loop_jit {
             ($frame:expr, $do_compile:expr, $start:expr, $end:expr, $failed:expr) => {
@@ -466,27 +464,9 @@ impl VM {
                         Variable::Short(self.stack[self.bp + frame.sp - 1].get_int() as i16);
                     frame.pc += 1;
                 }
-                Inst::invokestatic => {
-                    let a = self.run_invoke_static(true);
-                    if let Some(info) = a {
-                        let frame = frame!();
-                        let code2 = &mut frame.method_info.code.as_mut().unwrap().code;
-                        code2[frame.pc - 3] = Inst::invokestatic_quick;
-                        code2[frame.pc - 2] = 0;
-                        code2[frame.pc - 1] = self.quick_table.len() as u8;
-                        code[frame.pc - 3] = Inst::invokestatic_quick;
-                        code[frame.pc - 2] = 0;
-                        code[frame.pc - 1] = self.quick_table.len() as u8;
-                        self.quick_table.push(info);
-                    }
-                }
-                Inst::invokespecial => {
-                    self.run_invoke_static(false);
-                }
-                Inst::invokevirtual => {
-                    self.run_invoke_static(false);
-                }
-                Inst::invokestatic_quick => self.run_invoke_static_quick(),
+                Inst::invokestatic => self.run_invoke_static(true),
+                Inst::invokespecial => self.run_invoke_static(false),
+                Inst::invokevirtual => self.run_invoke_static(false),
                 Inst::new => self.run_new(),
                 Inst::newarray => self.run_new_array(),
                 Inst::anewarray => self.run_new_obj_array(),
@@ -1126,7 +1106,7 @@ impl VM {
         unsafe { &mut *class }.put_static_variable(name.as_str(), val)
     }
 
-    fn run_invoke_static(&mut self, is_invoke_static: bool) -> Option<QuickInfo> {
+    fn run_invoke_static(&mut self, is_invoke_static: bool) {
         #[rustfmt::skip]
         macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
 
@@ -1174,7 +1154,7 @@ impl VM {
             self.run_jit_compiled_func(&exec_method, former_sp, descriptor.as_str(), virtual_class)
         } {
             frame!().sp = sp;
-            return None;
+            return;
         }
 
         self.frame_stack.push(Frame::new());
@@ -1218,74 +1198,6 @@ impl VM {
             } else {
                 1
             };
-        }
-
-        if is_invoke_static {
-            Some(QuickInfo {
-                method: exec_method,
-                class: virtual_class,
-                params_num,
-                ret_ty: VariableType::parse_return_type(descriptor).unwrap(),
-            })
-        } else {
-            None
-        }
-    }
-
-    fn run_invoke_static_quick(&mut self) {
-        #[rustfmt::skip]
-        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
-        let quick_info = {
-            let frame = frame!();
-            let code = &frame.method_info.code.as_ref().unwrap().code;
-            let index = ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize;
-            self.quick_table[index].clone()
-        };
-        frame!().pc += 3;
-
-        let former_sp = frame!().sp as usize;
-
-        self.frame_stack.push(Frame::new());
-
-        let frame = frame!();
-
-        frame.method_info = quick_info.method;
-
-        // https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html#jvms-4.1
-        // > The ACC_SUPER flag exists for backward compatibility with code compiled by older
-        // > compilers for the Java programming language. In Oracle’s JDK prior to release 1.0.2, the
-        // > compiler generated ClassFile access_flags in which the flag now representing ACC_SUPER
-        // > had no assigned meaning, and Oracle's Java Virtual Machine implementation ignored the
-        // > flag if it was set.
-        frame.class = Some(quick_info.class);
-
-        let params_num = quick_info.params_num;
-        let mut sp_start = params_num;
-        if frame.method_info.access_flags & 0x0100 > 0 {
-            // method_info.access_flags & ACC_NATIVE => do not add max_locals
-        } else {
-            let max_locals = frame.method_info.code.as_ref().unwrap().max_locals;
-            sp_start += max_locals as usize;
-        }
-
-        frame.sp = sp_start;
-        let bp_offset = former_sp - params_num;
-        self.bp += bp_offset;
-
-        self.run();
-
-        self.bp -= bp_offset;
-        self.frame_stack.pop();
-
-        let mut frame = frame!();
-        frame.sp -= params_num;
-
-        if quick_info.ret_ty != VariableType::Void {
-            // Returns a value
-            frame.sp += match quick_info.ret_ty {
-                VariableType::Double | VariableType::Long => 2,
-                _ => 1,
-            }
         }
     }
 
@@ -1627,8 +1539,6 @@ pub mod Inst {
     pub const monitorenter: u8 = 194;
     pub const ifnull:       u8 = 198;
     pub const ifnonnull:    u8 = 199;
-    // Quick opcodes (faster)
-    pub const invokestatic_quick: u8 = 203;
     
     pub fn get_inst_size(inst: Code) -> usize {
         match inst {
@@ -1644,8 +1554,7 @@ pub mod Inst {
             sipush | ldc2_w | iinc | invokestatic | invokespecial | invokevirtual | new | anewarray 
                 | goto | ifeq | iflt | ifne | ifle | ifge | if_icmpne | if_icmpge | if_icmpgt | if_icmpeq | if_acmpne | if_icmplt |
                 ifnull | ifnonnull | 
-                getstatic | putstatic | getfield | putfield 
-                | invokestatic_quick => 3, 
+                getstatic | putstatic | getfield | putfield => 3, 
             e => unimplemented!("{}", e),
         }
     }
