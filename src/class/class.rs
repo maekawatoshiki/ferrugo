@@ -1,4 +1,4 @@
-use super::super::exec::frame::Variable;
+use super::super::exec::frame::{Variable, VariableType};
 use super::super::exec::jit::{FuncJITExecInfo, LoopJITExecInfo};
 use super::super::exec::objectheap::ObjectHeap;
 use super::super::gc::gc::GcType;
@@ -20,6 +20,7 @@ pub struct Class {
     pub classfile: ClassFile,
     pub classheap: Option<GcType<ClassHeap>>,
     pub static_variables: FxHashMap<String, Variable>,
+    pub fields: FxHashMap<String, (usize, VariableType)>,
     pub jit_info_mgr: FxHashMap<(/*(name_index, descriptor_index)=*/ usize, usize), JITInfoManager>,
 }
 
@@ -29,6 +30,7 @@ impl Class {
             classfile: ClassFile::new(),
             classheap: None,
             static_variables: FxHashMap::default(),
+            fields: FxHashMap::default(),
             jit_info_mgr: FxHashMap::default(),
         }
     }
@@ -47,6 +49,7 @@ impl Class {
         let mut cf_reader = ClassFileReader::new(filename)?;
         let cf = cf_reader.read()?;
         self.classfile = cf;
+        self.number_fields();
         Some(())
     }
 
@@ -166,6 +169,36 @@ impl Class {
             }
         }
         None
+    }
+
+    pub fn get_numbered_field_info(&self, name: &str) -> Option<&(usize, VariableType)> {
+        let mut class = self;
+        loop {
+            if let Some(info) = class.fields.get(name) {
+                return Some(info);
+            }
+            if let Some(class_ptr) = class.get_super_class() {
+                class = unsafe { &*class_ptr };
+            } else {
+                return None;
+            }
+        }
+    }
+
+    fn number_fields(&mut self) {
+        for i in 0..self.classfile.fields_count as usize {
+            let name = self.classfile.constant_pool[(self.classfile.fields[i].name_index) as usize]
+                .get_utf8()
+                .unwrap();
+            let descriptor = self.classfile.constant_pool
+                [(self.classfile.fields[i].descriptor_index) as usize]
+                .get_utf8()
+                .unwrap();
+            self.fields.insert(
+                name.clone(),
+                (i, VariableType::parse_type(descriptor).unwrap()),
+            );
+        }
     }
 
     pub fn get_super_class(&self) -> Option<GcType<Class>> {

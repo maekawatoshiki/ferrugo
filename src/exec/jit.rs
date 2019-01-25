@@ -67,7 +67,8 @@ impl LoopJITExecInfo {
 pub struct FuncJITExecInfo {
     pub func: LLVMValueRef,
     pub cant_compile: bool,
-    pub args_ty: Vec<VariableType>,
+    pub params_ty: Vec<VariableType>,
+    pub params_len: usize,
     pub ret_ty: Option<VariableType>,
 }
 
@@ -76,7 +77,8 @@ impl FuncJITExecInfo {
         FuncJITExecInfo {
             func: ptr::null_mut(),
             cant_compile: true,
-            args_ty: vec![],
+            params_ty: vec![],
+            params_len: 0,
             ret_ty: None,
         }
     }
@@ -158,7 +160,7 @@ impl JIT {
     ) -> Option<usize> {
         let mut local_vars = vec![];
 
-        let mut i = bp + sp - exec_info.args_ty.len();
+        let mut i = bp + sp - exec_info.params_len;
         while i < bp + sp {
             local_vars.push(match stack[i] {
                 Variable::Int(i) => llvm_const_int32(self.context, i as u64),
@@ -166,12 +168,13 @@ impl JIT {
                     i += 1;
                     llvm_const_double(self.context, f)
                 }
+                Variable::Pointer(p) => llvm_const_ptr(self.context, p),
                 _ => return None,
             });
             i += 1;
         }
 
-        sp -= exec_info.args_ty.len();
+        sp -= exec_info.params_len;
 
         let ret_ty = exec_info.ret_ty.clone().unwrap();
         let func_ret_ty = ret_ty.to_llvmty(self.context);
@@ -221,7 +224,7 @@ impl JIT {
             }
             VariableType::Double => {
                 stack[bp + sp] = Variable::Double(transmute::<u64, f64>(ret_int));
-                sp += 1
+                sp += 2
             }
             VariableType::Pointer => {
                 stack[bp + sp] = Variable::Pointer(transmute::<u64, *mut u64>(ret_int));
@@ -277,13 +280,20 @@ impl JIT {
         class: GcType<Class>,
         blocks: &mut Vec<Block>,
         descriptor: &str,
+        static_method: bool,
     ) -> CResult<FuncJITExecInfo> {
         self.cur_class = Some(class);
         self.cur_func_indices = Some((name_index, descriptor_index));
 
-        let (arg_types, ret_ty) = self
-            .get_arg_return_ty(descriptor)
-            .ok_or(Error::CouldntCompile)?;
+        let (arg_types, ret_ty) = {
+            let (mut arg_types, ret_ty) = self
+                .get_arg_return_ty(descriptor)
+                .ok_or(Error::CouldntCompile)?;
+            if !static_method {
+                arg_types.insert(0, VariableType::Pointer);
+            }
+            (arg_types, ret_ty)
+        };
         let func_ret_ty = ret_ty.to_llvmty(self.context);
         let func_ty = LLVMFunctionType(
             func_ret_ty,
@@ -396,7 +406,13 @@ impl JIT {
         Ok(FuncJITExecInfo {
             func,
             cant_compile: false,
-            args_ty: arg_types.clone(),
+            params_len: arg_types.iter().fold(0, |acc, ty| {
+                acc + match ty {
+                    VariableType::Double => 2,
+                    _ => 1,
+                }
+            }),
+            params_ty: arg_types.clone(),
             ret_ty: Some(ret_ty),
         })
     }

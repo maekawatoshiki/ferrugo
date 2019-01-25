@@ -373,7 +373,7 @@ impl ClassFileReader {
             max_stack,
             max_locals,
             code_length,
-            code,
+            code: Box::into_raw(Box::new(code)),
             exception_table_length,
             exception_table,
             attributes_count,

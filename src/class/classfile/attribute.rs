@@ -10,11 +10,23 @@ pub struct CodeAttribute {
     pub max_stack: u16,
     pub max_locals: u16,
     pub code_length: u32,
-    pub code: Vec<u8>,
+    pub code: *mut Vec<u8>,
     pub exception_table_length: u16,
     pub exception_table: Vec<Exception>,
     pub attributes_count: u16,
     pub attributes: Vec<AttributeInfo>,
+}
+
+impl CodeAttribute {
+    pub fn read_u8_from_code(&self, start: usize) -> usize {
+        let code = unsafe { &*self.code };
+        code[start] as usize
+    }
+
+    pub fn read_u16_from_code(&self, start: usize) -> usize {
+        let code = unsafe { &*self.code };
+        ((code[start] as usize) << 8) + code[start + 1] as usize
+    }
 }
 
 #[derive(Debug, Clone)]

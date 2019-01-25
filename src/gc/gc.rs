@@ -64,9 +64,9 @@ impl GcTargetInfo {
 }
 
 pub fn new<T>(val: T) -> GcType<T> {
+    let size = mem::size_of_val(&val);
     let ptr = Box::into_raw(Box::new(val));
     let info = GcTargetInfo::new_unmarked(unsafe { std::intrinsics::type_name::<T>() });
-    let size = get_size(ptr as *mut u64, &info);
     ALLOCATED_MEM_SIZE_BYTE.fetch_add(size, Ordering::Relaxed);
     GC_MEM.with(|m| {
         m.borrow_mut().insert(ptr as *mut u64, info);
@@ -87,11 +87,11 @@ pub fn mark_and_sweep(vm: &VM) {
         return;
     }
 
-    fn over16kb_allocated() -> bool {
+    fn over10mb_allocated() -> bool {
         ALLOCATED_MEM_SIZE_BYTE.load(Ordering::Relaxed) > 10 * 1024 * 1024
     }
 
-    if !over16kb_allocated() {
+    if !over10mb_allocated() {
         return;
     }
 
@@ -192,7 +192,7 @@ fn trace_ptr(ptr: *mut u64, m: &mut GcStateMap) {
         GcTargetType::Object => {
             let obj = unsafe { &*(ptr as *mut ObjectBody) };
             obj.class.trace(m);
-            obj.variables.iter().for_each(|(_, v)| v.trace(m));
+            obj.variables.iter().for_each(|v| v.trace(m));
         }
         GcTargetType::Class => {
             let class = unsafe { &*(ptr as *mut Class) };
@@ -221,17 +221,6 @@ fn free_ptr(ptr: *mut u64, info: &GcTargetInfo) -> usize {
             mem::size_of_val(&*unsafe { Box::from_raw(ptr as *mut ObjectBody) })
         }
         GcTargetType::Class => mem::size_of_val(&*unsafe { Box::from_raw(ptr as *mut Class) }),
-        GcTargetType::ClassHeap
-        | GcTargetType::ObjectHeap
-        | GcTargetType::RuntimeEnvironment
-        | GcTargetType::Unknown => 0,
-    }
-}
-
-// TODO: How can we get the size of Vec or something in bytes?
-fn get_size(_ptr: *mut u64, info: &GcTargetInfo) -> usize {
-    match info.ty {
-        GcTargetType::Array | GcTargetType::Object | GcTargetType::Class => 16,
         GcTargetType::ClassHeap
         | GcTargetType::ObjectHeap
         | GcTargetType::RuntimeEnvironment

@@ -1,7 +1,6 @@
 use super::super::class::class::Class;
 use super::super::class::classfile::method::MethodInfo;
 use super::super::gc::gc::GcType;
-use rustc_hash::FxHashMap;
 
 #[derive(Debug, Clone)]
 pub struct Frame {
@@ -52,7 +51,7 @@ pub enum Variable {
 #[derive(Debug, Clone)]
 pub struct ObjectBody {
     pub class: Variable,
-    pub variables: FxHashMap<String, Variable>,
+    pub variables: Vec<Variable>,
 }
 
 #[derive(Debug, Clone)]
@@ -143,8 +142,8 @@ impl Variable {
 }
 
 impl ObjectBody {
-    pub fn get_string_mut(&self) -> &mut String {
-        unsafe { &mut *(self.variables.get("value").unwrap().get_pointer::<Array>()) }
+    pub fn get_string_mut(&mut self) -> &mut String {
+        unsafe { &mut *(self.variables[0].get_pointer::<Array>()) }
             .string
             .as_mut()
             .unwrap()
@@ -172,6 +171,7 @@ impl VariableType {
                 }
                 VariableType::Pointer
             }
+            '[' => VariableType::Pointer, // TODO
             'V' => VariableType::Void,
             'I' => VariableType::Int,
             'Z' => VariableType::Int,
@@ -180,6 +180,21 @@ impl VariableType {
             _ => return None,
         };
 
+        Some(ty)
+    }
+
+    pub fn parse_type(descriptor: &str) -> Option<VariableType> {
+        let c = descriptor.chars().nth(0).unwrap();
+        let ty = match c {
+            'L' => VariableType::Pointer,
+            '[' => VariableType::Pointer,
+            'V' => VariableType::Void,
+            'I' => VariableType::Int,
+            'Z' => VariableType::Int,
+            'J' => VariableType::Long,
+            'D' => VariableType::Double,
+            e => panic!("{:?}", e),
+        };
         Some(ty)
     }
 }

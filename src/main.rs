@@ -55,7 +55,12 @@ fn run_file(filename: &str) {
     vm.stack[0] = object;
     vm.frame_stack[0].class = Some(class);
     vm.frame_stack[0].method_info = method;
-    vm.frame_stack[0].sp = vm.frame_stack[0].method_info.code.as_ref().unwrap().max_locals as usize;
+    vm.frame_stack[0].sp = vm.frame_stack[0]
+        .method_info
+        .code
+        .as_ref()
+        .unwrap()
+        .max_locals as usize;
 
     dprintln!("---- exec output begin ----");
     vm.run();

@@ -4,7 +4,7 @@ use super::super::class::classfile::{method, method::MethodInfo};
 use super::super::class::classheap::ClassHeap;
 use super::super::gc::{gc, gc::GcType};
 use super::cfg::CFGMaker;
-use super::frame::{AType, Array, Frame, ObjectBody, Variable};
+use super::frame::{AType, Array, Frame, ObjectBody, Variable, VariableType};
 use super::native_functions;
 use super::objectheap::ObjectHeap;
 use super::{jit, jit::JIT};
@@ -87,7 +87,7 @@ impl VM {
             frame.method_info.descriptor_index as usize,
         );
 
-        let code = frame.method_info.code.as_ref().unwrap().code.clone();
+        let code = unsafe { &*frame.method_info.code.as_ref().unwrap().code };
 
         macro_rules! loop_jit {
             ($frame:expr, $do_compile:expr, $start:expr, $end:expr, $failed:expr) => {
@@ -796,6 +796,10 @@ impl VM {
                 Inst::putstatic => self.run_put_static(),
                 Inst::getfield => self.run_get_field(),
                 Inst::putfield => self.run_put_field(),
+                Inst::getfield_quick => self.run_get_field_quick(),
+                Inst::putfield_quick => self.run_put_field_quick(),
+                Inst::getfield2_quick => self.run_get_field2_quick(),
+                Inst::putfield2_quick => self.run_put_field2_quick(),
                 Inst::monitorenter => {
                     // TODO: Implement
                     frame.sp -= 1;
@@ -943,38 +947,42 @@ impl VM {
 
         let frame = frame!();
         let frame_class = unsafe { &*frame.class.unwrap() };
-        let index = {
-            let code = &frame.method_info.code.as_ref().unwrap().code;
-            ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
-        };
-        frame.pc += 3;
+        let index = frame
+            .method_info
+            .code
+            .as_ref()
+            .unwrap()
+            .read_u16_from_code(frame.pc + 1);
 
         let objectref =
             unsafe { &mut *self.stack[self.bp + frame.sp - 1].get_pointer::<ObjectBody>() };
-        frame.sp -= 1;
 
         let name_and_type_index = fld!(
             Constant::FieldrefInfo,
             &frame_class.classfile.constant_pool[index],
             name_and_type_index
         );
-        let (name_index, descriptor_index) = fld!(
+        let name_index = fld!(
             Constant::NameAndTypeInfo,
             &frame_class.classfile.constant_pool[name_and_type_index],
-            name_index,
-            descriptor_index
+            name_index
         );
         let name = frame_class.classfile.constant_pool[name_index]
             .get_utf8()
             .unwrap();
-        let descriptor = frame_class.classfile.constant_pool[descriptor_index]
-            .get_utf8()
-            .unwrap();
 
-        let value = objectref.variables.get(name).unwrap();
+        let class = unsafe { &*objectref.class.get_pointer::<Class>() };
+        let (id, ty) = *class.get_numbered_field_info(name.as_str()).unwrap();
 
-        self.stack[self.bp + frame.sp] = *value;
-        frame.sp += if descriptor.ends_with("D") { 2 } else { 1 };
+        assert!(id <= 0xff);
+
+        let code = unsafe { &mut *frame.method_info.code.as_mut().unwrap().code };
+        code[frame.pc + 0] = match ty {
+            VariableType::Double | VariableType::Long => Inst::getfield2_quick,
+            _ => Inst::getfield_quick,
+        };
+        code[frame.pc + 1] = 0;
+        code[frame.pc + 2] = id as u8;
     }
 
     fn run_put_field(&mut self) {
@@ -983,11 +991,12 @@ impl VM {
 
         let frame = frame!();
         let frame_class = unsafe { &*frame.class.unwrap() };
-        let index = {
-            let code = &frame.method_info.code.as_ref().unwrap().code;
-            ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
-        };
-        frame.pc += 3;
+        let index = frame
+            .method_info
+            .code
+            .as_ref()
+            .unwrap()
+            .read_u16_from_code(frame.pc + 1);
 
         let name_and_type_index = fld!(
             Constant::FieldrefInfo,
@@ -1007,13 +1016,104 @@ impl VM {
             .get_utf8()
             .unwrap();
 
-        let i = if descriptor.ends_with("D") { 2 } else { 1 };
-        let value = self.stack[self.bp + frame.sp - i];
+        let ty = VariableType::parse_type(descriptor.as_str()).unwrap();
+        let i = match &ty {
+            VariableType::Double | VariableType::Long => 2,
+            _ => 1,
+        };
         let objectref =
             unsafe { &mut *self.stack[self.bp + frame.sp - (i + 1)].get_pointer::<ObjectBody>() };
-        frame.sp -= i + 1;
 
-        objectref.variables.insert(name.clone(), value);
+        let class = unsafe { &*objectref.class.get_pointer::<Class>() };
+        let id = class.get_numbered_field_info(name.as_str()).unwrap().0;
+
+        assert!(id <= 0xff);
+
+        let code = unsafe { &mut *frame.method_info.code.as_mut().unwrap().code };
+        code[frame.pc + 0] = match ty {
+            VariableType::Double | VariableType::Long => Inst::putfield2_quick,
+            _ => Inst::putfield_quick,
+        };
+        code[frame.pc + 1] = 0;
+        code[frame.pc + 2] = id as u8;
+    }
+
+    fn run_get_field_quick(&mut self) {
+        #[rustfmt::skip]
+        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
+
+        let frame = frame!();
+        let id = frame
+            .method_info
+            .code
+            .as_ref()
+            .unwrap()
+            .read_u16_from_code(frame.pc + 1);
+        frame.pc += 3;
+
+        let objectref =
+            unsafe { &mut *self.stack[self.bp + frame.sp - 1].get_pointer::<ObjectBody>() };
+        let value = objectref.variables[id];
+        self.stack[self.bp + frame.sp - 1] = value;
+    }
+
+    fn run_put_field_quick(&mut self) {
+        #[rustfmt::skip]
+        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
+
+        let frame = frame!();
+        let id = frame
+            .method_info
+            .code
+            .as_ref()
+            .unwrap()
+            .read_u16_from_code(frame.pc + 1);
+        frame.pc += 3;
+
+        let value = self.stack[self.bp + frame.sp - 1];
+        let objectref =
+            unsafe { &mut *self.stack[self.bp + frame.sp - 2].get_pointer::<ObjectBody>() };
+        frame.sp -= 2;
+
+        objectref.variables[id] = value;
+    }
+
+    fn run_get_field2_quick(&mut self) {
+        #[rustfmt::skip]
+        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
+
+        let frame = frame!();
+        let id = frame
+            .method_info
+            .code
+            .as_ref()
+            .unwrap()
+            .read_u16_from_code(frame.pc + 1);
+        frame.pc += 3;
+
+        let objectref =
+            unsafe { &mut *self.stack[self.bp + frame.sp - 1].get_pointer::<ObjectBody>() };
+        let value = objectref.variables[id];
+        self.stack[self.bp + frame.sp - 1] = value;
+        frame.sp += 1;
+    }
+
+    fn run_put_field2_quick(&mut self) {
+        let frame = self.frame_stack.last_mut().unwrap();
+        let id = frame
+            .method_info
+            .code
+            .as_ref()
+            .unwrap()
+            .read_u16_from_code(frame.pc + 1);
+        frame.pc += 3;
+
+        let value = self.stack[self.bp + frame.sp - 2];
+        let objectref =
+            unsafe { &mut *self.stack[self.bp + frame.sp - 3].get_pointer::<ObjectBody>() };
+        frame.sp -= 3;
+
+        objectref.variables[id] = value;
     }
 
     fn run_get_static(&mut self) {
@@ -1022,10 +1122,12 @@ impl VM {
 
         let frame = frame!();
         let frame_class = unsafe { &*frame.class.unwrap() };
-        let index = {
-            let code = &frame.method_info.code.as_ref().unwrap().code;
-            ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
-        };
+        let index = frame
+            .method_info
+            .code
+            .as_ref()
+            .unwrap()
+            .read_u16_from_code(frame.pc + 1);
         frame.pc += 3;
 
         let (class_index, name_and_type_index) = fld!(
@@ -1068,10 +1170,12 @@ impl VM {
 
         let frame = frame!();
         let frame_class = unsafe { &*frame.class.unwrap() };
-        let index = {
-            let code = &frame.method_info.code.as_ref().unwrap().code;
-            ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
-        };
+        let index = frame
+            .method_info
+            .code
+            .as_ref()
+            .unwrap()
+            .read_u16_from_code(frame.pc + 1);
         frame.pc += 3;
 
         let (class_index, name_and_type_index) = fld!(
@@ -1113,8 +1217,12 @@ impl VM {
         let frame_class = unsafe { &*frame!().class.unwrap() };
         let mref_index = {
             let frame = frame!();
-            let code = &frame.method_info.code.as_ref().unwrap().code;
-            ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
+            frame
+                .method_info
+                .code
+                .as_ref()
+                .unwrap()
+                .read_u16_from_code(frame.pc + 1)
         };
         frame!().pc += 3;
 
@@ -1228,8 +1336,8 @@ impl VM {
             Some(exec_info) if exec_info.cant_compile => return None,
             Some(exec_info) => exec_info.clone(),
             none => {
-                let code = exec_method.code.clone().unwrap().code;
-                let mut blocks = CFGMaker::new().make(&code, 0, code.len());
+                let code = &*exec_method.code.as_ref().unwrap().code;
+                let mut blocks = CFGMaker::new().make(code, 0, code.len());
 
                 match self.jit.compile_func(
                     (
@@ -1239,6 +1347,7 @@ impl VM {
                     class,
                     &mut blocks,
                     descriptor,
+                    exec_method.check_access_flags(method::access_flags::ACC_PACC_STATIC),
                 ) {
                     Ok(exec_info) => {
                         *none = Some(exec_info.clone());
@@ -1262,8 +1371,12 @@ impl VM {
     fn run_new_array(&mut self) {
         let frame = self.frame_stack.last_mut().unwrap();
         let atype = {
-            let code = &frame.method_info.code.as_ref().unwrap().code;
-            let atype = code[frame.pc + 1] as usize;
+            let atype = frame
+                .method_info
+                .code
+                .as_ref()
+                .unwrap()
+                .read_u8_from_code(frame.pc + 1);
             AType::to_atype(atype)
         };
         frame.pc += 2;
@@ -1278,10 +1391,12 @@ impl VM {
     fn run_new_obj_array(&mut self) {
         let frame = self.frame_stack.last_mut().unwrap();
         let frame_class = unsafe { &*frame.class.unwrap() };
-        let class_index = {
-            let code = &frame.method_info.code.as_ref().unwrap().code;
-            ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
-        };
+        let class_index = frame
+            .method_info
+            .code
+            .as_ref()
+            .unwrap()
+            .read_u16_from_code(frame.pc + 1);
         frame.pc += 3;
 
         let name_index = fld!(
@@ -1308,7 +1423,7 @@ impl VM {
         let frame = frame!();
         let frame_class = unsafe { &*frame.class.unwrap() };
         let class_index = {
-            let code = &frame.method_info.code.as_ref().unwrap().code;
+            let code = unsafe { &*frame.method_info.code.as_ref().unwrap().code };
             ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
         };
         frame.pc += 3;
@@ -1539,6 +1654,11 @@ pub mod Inst {
     pub const monitorenter: u8 = 194;
     pub const ifnull:       u8 = 198;
     pub const ifnonnull:    u8 = 199;
+    // Quick opcodes (faster)
+    pub const getfield_quick: u8 = 204;
+    pub const putfield_quick: u8 = 205;
+    pub const getfield2_quick: u8 = 206;
+    pub const putfield2_quick: u8 = 207;
     
     pub fn get_inst_size(inst: Code) -> usize {
         match inst {
@@ -1554,7 +1674,7 @@ pub mod Inst {
             sipush | ldc2_w | iinc | invokestatic | invokespecial | invokevirtual | new | anewarray 
                 | goto | ifeq | iflt | ifne | ifle | ifge | if_icmpne | if_icmpge | if_icmpgt | if_icmpeq | if_acmpne | if_icmplt |
                 ifnull | ifnonnull | 
-                getstatic | putstatic | getfield | putfield => 3, 
+                getstatic | putstatic | getfield | putfield | getfield_quick | putfield_quick | getfield2_quick | putfield2_quick => 3, 
             e => unimplemented!("{}", e),
         }
     }

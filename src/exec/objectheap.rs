@@ -2,7 +2,6 @@ use super::super::class::{class::Class, classheap::ClassHeap};
 use super::super::exec::vm::load_class;
 use super::super::gc::{gc, gc::GcType};
 use super::frame::{AType, Array, ObjectBody, Variable};
-use rustc_hash::FxHashMap;
 
 #[derive(Clone, Debug)]
 pub struct ObjectHeap {
@@ -18,11 +17,7 @@ impl ObjectHeap {
         let class_field_count = unsafe { &*class }.get_object_field_count();
         let obj = gc::new(ObjectBody {
             class: Variable::Pointer(class as *mut u64),
-            variables: {
-                let mut vars = FxHashMap::default();
-                vars.reserve(class_field_count);
-                vars
-            },
+            variables: vec![Variable::Int(0); class_field_count],
         });
 
         Variable::Pointer(obj as *mut u64)
@@ -39,7 +34,7 @@ impl ObjectHeap {
         unsafe { &mut *object.get_pointer::<ObjectBody>() }
             .variables
             .insert(
-                "value".to_string(),
+                0,
                 Variable::Pointer(gc::new(Array {
                     atype: AType::Char,
                     elements: vec![],
