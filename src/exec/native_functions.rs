@@ -1,6 +1,9 @@
 use super::super::class::class::Class;
 use super::jit::*;
-use super::{frame::ObjectBody, vm::RuntimeEnvironment};
+use super::{
+    frame::{ObjectBody, VariableType},
+    vm::RuntimeEnvironment,
+};
 use llvm;
 use llvm::{core::*, prelude::*};
 use rustc_hash::FxHashMap;

@@ -4,7 +4,7 @@ use super::{
         gc::gc::GcType,
     },
     cfg::{Block, BrKind},
-    frame::Variable,
+    frame::{Variable, VariableType},
     native_functions,
     vm::{load_class, Inst, RuntimeEnvironment},
 };
@@ -23,14 +23,6 @@ pub enum Error {
     General,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum VariableType {
-    Int,
-    Double,
-    Void,
-    Pointer,
-}
-
 pub trait CastIntoLLVMType {
     unsafe fn to_llvmty(&self, ctx: LLVMContextRef) -> LLVMTypeRef;
 }
@@ -42,6 +34,7 @@ impl CastIntoLLVMType for VariableType {
             &VariableType::Double => LLVMDoubleTypeInContext(ctx),
             &VariableType::Void => LLVMVoidTypeInContext(ctx),
             &VariableType::Pointer => LLVMPointerType(LLVMInt8TypeInContext(ctx), 0),
+            &VariableType::Long => unimplemented!(),
         }
     }
 }
@@ -230,7 +223,7 @@ impl JIT {
                 stack[bp + sp] = Variable::Pointer(transmute::<u64, *mut u64>(ret_int));
                 sp += 1
             }
-            VariableType::Void => {}
+            _ => {}
         }
 
         LLVMDeleteFunction(func);

@@ -59,40 +59,9 @@ class BigInteger {
 class BigInt { 
   public static void main(String[] args) {
     BigInteger n = new BigInteger(1);
-    for(int i = 1; i < 1000; i++) {
+    for(int i = 1; i < 90; i++) {
       n = n.mul(n, i);
       System.out.println(i + "! = " + n.asString());
     }
   }
 }
-
-// void inc_bignum(bignum *b)
-// {
-//   int carry = 1;
-//   bignum_list *l = b->list;
-//
-//   for (;;) {
-//     l->n += carry;
-//     carry = l->n / 10;
-//     l->n %= 10;
-//
-//     if (carry) {
-//       if (l->next == NULL)
-//         l->next = new_bignum_list("0");
-//       l = l->next;
-//     } else
-//       break;
-//   }
-//
-// }
-//
-// int main(void)
-// {
-//   bignum *b = new_bignum("999999999999999999");
-//   display_bignum(b);
-//   inc_bignum(b);
-//   display_bignum(b);
-//   free_bignum(b);
-//
-//   return EXIT_SUCCESS;
-// }
