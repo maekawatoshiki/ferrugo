@@ -6,9 +6,15 @@
 
 Ferrugo is a JVM implementation written in Rust.
 
-*Just for fun*
+*This is now just a **toy** project (for me/you to learn how it works).*
 
-*JVM in Rust. Sounds great, isn't it?*
+
+
+# Current Status
+
+- Able to run some classfiles. see ``./examples/(Hello|BigInt|SmallPT).class``
+- Partly support for JIT compiling powered by LLVM
+- Aiming readable code (this is the hardest, yes)
 
 # Building from Source
 
