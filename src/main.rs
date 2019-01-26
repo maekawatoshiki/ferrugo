@@ -18,13 +18,24 @@ fn main() {
         .version(VERSION_STR)
         .author("uint256_t")
         .about("A JVM Implementation written in Rust")
-        .arg(Arg::with_name("file").help("Input file name").index(1));
+        .arg(Arg::with_name("file").help("Input file name").index(1))
+        .arg(
+            Arg::with_name("dump")
+                .help("Dumps methods in the specified classfile")
+                .short("d")
+                .long("dump"),
+        );
     let app_matches = app.clone().get_matches();
 
     let filename = match app_matches.value_of("file") {
         Some(filename) => filename,
         None => return,
     };
+
+    if app_matches.is_present("dump") {
+        show_methods(filename);
+        return;
+    }
 
     run_file(filename);
 }
@@ -67,6 +78,30 @@ fn run_file(filename: &str) {
     dprintln!("---- exec output end ------");
 
     dprintln!("stack trace: {:?}", &vm.stack[0..128]);
+}
+
+fn show_methods(filename: &str) {
+    let classheap_ptr = gc::new(classheap::ClassHeap::new());
+    let objectheap_ptr = gc::new(ObjectHeap::new());
+
+    let class_ptr = load_class_with_filename(classheap_ptr, objectheap_ptr, filename);
+    let class = unsafe { &*class_ptr };
+
+    for i in 0..class.classfile.methods_count as usize {
+        let method = &class.classfile.methods[i];
+        let name = class.classfile.constant_pool[(method.name_index) as usize]
+            .get_utf8()
+            .unwrap();
+        let descriptor = class.classfile.constant_pool[(method.descriptor_index) as usize]
+            .get_utf8()
+            .unwrap();
+
+        println!("Method:");
+        println!("  Name: {}", name);
+        println!("  Descriptor: {}", descriptor);
+        println!("  Code: ");
+        method.code.as_ref().unwrap().dump_bytecode();
+    }
 }
 
 #[test]
