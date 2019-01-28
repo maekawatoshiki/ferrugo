@@ -1,4 +1,4 @@
-use super::super::exec::frame::{Variable, VariableType};
+use super::super::exec::frame::{ObjectBody, Variable, VariableType};
 use super::super::exec::jit::{FuncJITExecInfo, LoopJITExecInfo};
 use super::super::exec::objectheap::ObjectHeap;
 use super::super::gc::gc::GcType;
@@ -19,7 +19,7 @@ pub struct JITInfoManager {
 pub struct Class {
     pub classfile: ClassFile,
     pub classheap: Option<GcType<ClassHeap>>,
-    pub static_variables: FxHashMap<String, Variable>,
+    pub static_variables: FxHashMap<String, u64>,
     pub fields: FxHashMap<String, (usize, VariableType)>,
     pub jit_info_mgr: FxHashMap<(/*(name_index, descriptor_index)=*/ usize, usize), JITInfoManager>,
 }
@@ -35,13 +35,13 @@ impl Class {
         }
     }
 
-    pub fn get_static_variable(&self, name: &str) -> Option<Variable> {
+    pub fn get_static_variable(&self, name: &str) -> Option<u64> {
         self.static_variables
             .get(name)
             .and_then(|var| Some(var.clone()))
     }
 
-    pub fn put_static_variable(&mut self, name: &str, val: Variable) {
+    pub fn put_static_variable(&mut self, name: &str, val: u64) {
         self.static_variables.insert(name.to_string(), val);
     }
 
@@ -73,7 +73,7 @@ impl Class {
         &mut self,
         objectheap: GcType<ObjectHeap>,
         index: usize,
-    ) -> Option<Variable> {
+    ) -> Option<u64> {
         let (s, java_string) = match self.classfile.constant_pool[index] {
             Constant::Utf8 {
                 ref s,
@@ -83,12 +83,12 @@ impl Class {
         };
 
         if let Some(java_string) = java_string {
-            return Some(*java_string);
+            return Some(*java_string as u64);
         }
 
         let jstring =
             unsafe { &mut *objectheap }.create_string_object(s.clone(), self.classheap.unwrap());
-        *java_string = Some(jstring);
+        *java_string = Some(jstring as GcType<ObjectBody>);
 
         Some(jstring)
     }
@@ -174,6 +174,7 @@ impl Class {
     pub fn get_numbered_field_info(&self, name: &str) -> Option<&(usize, VariableType)> {
         let mut class = self;
         loop {
+            println!("numbered fields {:?}", class.fields);
             if let Some(info) = class.fields.get(name) {
                 return Some(info);
             }
@@ -186,6 +187,7 @@ impl Class {
     }
 
     fn number_fields(&mut self) {
+        let init_count = self.count_super_class_fields();
         for i in 0..self.classfile.fields_count as usize {
             let name = self.classfile.constant_pool[(self.classfile.fields[i].name_index) as usize]
                 .get_utf8()
@@ -196,9 +198,20 @@ impl Class {
                 .unwrap();
             self.fields.insert(
                 name.clone(),
-                (i, VariableType::parse_type(descriptor).unwrap()),
+                (
+                    init_count + i,
+                    VariableType::parse_type(descriptor).unwrap(),
+                ),
             );
         }
+    }
+
+    fn count_super_class_fields(&self) -> usize {
+        if let Some(super_class_ptr) = self.get_super_class() {
+            let super_class = unsafe { &*super_class_ptr };
+            return self.fields.len() + super_class.count_super_class_fields();
+        }
+        0
     }
 
     pub fn get_super_class(&self) -> Option<GcType<Class>> {

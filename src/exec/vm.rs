@@ -10,6 +10,7 @@ use super::objectheap::ObjectHeap;
 use super::{jit, jit::JIT};
 use ansi_term::Colour;
 use rustc_hash::FxHashMap;
+use std::mem::transmute;
 
 #[macro_export]
 macro_rules! fld { ($a:path, $b:expr, $( $arg:ident ),*) => {{
@@ -31,7 +32,7 @@ pub struct VM {
     pub objectheap: GcType<ObjectHeap>,
     pub runtime_env: GcType<RuntimeEnvironment>,
     pub frame_stack: Vec<Frame>,
-    pub stack: Vec<Variable>,
+    pub stack: Vec<u64>,
     pub bp: usize,
     pub jit: JIT,
 }
@@ -51,13 +52,7 @@ impl VM {
                 frame_stack.push(Frame::new());
                 frame_stack
             },
-            stack: {
-                let mut stack = vec![];
-                for _ in 0..1024 {
-                    stack.push(Variable::Int(0));
-                }
-                stack
-            },
+            stack: vec![0; 1024],
             bp: 0,
             jit: unsafe { JIT::new(runtime_env) },
         }
@@ -148,7 +143,7 @@ impl VM {
 
             match cur_code {
                 Inst::aconst_null => {
-                    self.stack[self.bp + frame.sp] = Variable::Pointer(0 as *mut u64);
+                    self.stack[self.bp + frame.sp] = 0;
                     frame.sp += 1;
                     frame.pc += 1;
                 }
@@ -160,77 +155,74 @@ impl VM {
                 | Inst::iconst_4
                 | Inst::iconst_5 => {
                     self.stack[self.bp + frame.sp] =
-                        Variable::Int(cur_code as i32 - Inst::iconst_0 as i32);
+                        (cur_code as i64 - Inst::iconst_0 as i64) as u64;
                     frame.sp += 1;
                     frame.pc += 1;
                 }
                 Inst::dconst_0 | Inst::dconst_1 => {
-                    self.stack[self.bp + frame.sp] =
-                        Variable::Double((cur_code as i64 - Inst::dconst_0 as i64) as f64);
+                    self.stack[self.bp + frame.sp] = d2u(cur_code as f64 - Inst::dconst_0 as f64);
                     frame.sp += 2;
                     frame.pc += 1;
                 }
                 Inst::dstore => {
                     let index = code[frame.pc as usize + 1] as usize;
-                    self.stack[self.bp + index] = self.stack[self.bp + frame.sp - 2].clone();
+                    self.stack[self.bp + index] = self.stack[self.bp + frame.sp - 2];
                     frame.sp -= 2;
                     frame.pc += 2;
                 }
                 Inst::astore => {
                     let index = code[frame.pc as usize + 1] as usize;
-                    self.stack[self.bp + index] = self.stack[self.bp + frame.sp - 1].clone();
+                    self.stack[self.bp + index] = self.stack[self.bp + frame.sp - 1];
                     frame.sp -= 1;
                     frame.pc += 2;
                 }
                 Inst::istore => {
                     let index = code[frame.pc as usize + 1] as usize;
-                    self.stack[self.bp + index] = self.stack[self.bp + frame.sp - 1].clone();
+                    self.stack[self.bp + index] = self.stack[self.bp + frame.sp - 1];
                     frame.sp -= 1;
                     frame.pc += 2;
                 }
                 Inst::istore_0 | Inst::istore_1 | Inst::istore_2 | Inst::istore_3 => {
                     self.stack[self.bp + cur_code as usize - Inst::istore_0 as usize] =
-                        self.stack[self.bp + frame.sp - 1].clone();
+                        self.stack[self.bp + frame.sp - 1];
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::iload_0 | Inst::iload_1 | Inst::iload_2 | Inst::iload_3 => {
                     self.stack[self.bp + frame.sp] =
-                        self.stack[self.bp + cur_code as usize - Inst::iload_0 as usize].clone();
+                        self.stack[self.bp + cur_code as usize - Inst::iload_0 as usize];
                     frame.sp += 1;
                     frame.pc += 1;
                 }
                 Inst::dload_0 | Inst::dload_1 | Inst::dload_2 | Inst::dload_3 => {
                     self.stack[self.bp + frame.sp] =
-                        self.stack[self.bp + cur_code as usize - Inst::dload_0 as usize].clone();
+                        self.stack[self.bp + cur_code as usize - Inst::dload_0 as usize];
                     frame.sp += 2;
                     frame.pc += 1;
                 }
                 Inst::iaload => {
-                    let arrayref = self.stack[self.bp + frame.sp - 2].get_pointer::<Array>();
-                    let index = self.stack[self.bp + frame.sp - 1].get_int() as usize;
-                    self.stack[self.bp + frame.sp - 2] =
-                        unsafe { &*arrayref }.elements[index].clone();
+                    let arrayref = self.stack[self.bp + frame.sp - 2] as GcType<Array>;
+                    let index = self.stack[self.bp + frame.sp - 1] as usize;
+                    self.stack[self.bp + frame.sp - 2] = unsafe { &*arrayref }.elements[index];
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::aaload => {
-                    let arrayref = self.stack[self.bp + frame.sp - 2].get_pointer::<Array>();
-                    let index = self.stack[self.bp + frame.sp - 1].get_int() as usize;
-                    self.stack[self.bp + frame.sp - 2] =
-                        unsafe { &*arrayref }.elements[index].clone();
+                    let arrayref = self.stack[self.bp + frame.sp - 2] as GcType<Array>;
+                    let index = self.stack[self.bp + frame.sp - 1] as usize;
+                    self.stack[self.bp + frame.sp - 2] = unsafe { &*arrayref }.elements[index];
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::daload => {
-                    let arrayref = self.stack[self.bp + frame.sp - 2].get_pointer::<Array>();
-                    let index = self.stack[self.bp + frame.sp - 1].get_int() as usize;
+                    let arrayref = self.stack[self.bp + frame.sp - 2] as GcType<Array>;
+                    let index = self.stack[self.bp + frame.sp - 1] as usize;
                     self.stack[self.bp + frame.sp - 2] = unsafe { &*arrayref }.elements[index];
                     frame.pc += 1;
                 }
                 Inst::sipush => {
                     let val = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
-                    self.stack[self.bp + frame.sp] = Variable::Short(val);
+                    self.stack[self.bp + frame.sp] = val as u64;
                     frame.sp += 1;
                     frame.pc += 3;
                 }
@@ -238,14 +230,15 @@ impl VM {
                     let index = code[frame.pc + 1] as usize;
                     let val = match unsafe { &*frame.class.unwrap() }.classfile.constant_pool[index]
                     {
-                        Constant::IntegerInfo { i } => Variable::Int(i),
-                        Constant::FloatInfo { f } => Variable::Float(f),
+                        Constant::IntegerInfo { i } => i as u64,
+                        Constant::FloatInfo { f } => unsafe { transmute::<f32, u32>(f) as u64 },
                         Constant::String { string_index } => unsafe { &mut *frame.class.unwrap() }
                             .get_java_string_utf8_from_const_pool(
                                 self.objectheap,
                                 string_index as usize,
                             )
-                            .unwrap(),
+                            .unwrap()
+                            as u64,
                         _ => unimplemented!(),
                     };
                     self.stack[self.bp + frame.sp] = val;
@@ -256,7 +249,7 @@ impl VM {
                     let index = ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize;
                     let val = match unsafe { &*frame.class.unwrap() }.classfile.constant_pool[index]
                     {
-                        Constant::DoubleInfo { f } => Variable::Double(f),
+                        Constant::DoubleInfo { f } => unsafe { transmute::<f64, u64>(f) },
                         _ => unimplemented!(),
                     };
                     self.stack[self.bp + frame.sp] = val;
@@ -300,168 +293,155 @@ impl VM {
                     frame.pc += 1;
                 }
                 Inst::iastore => {
-                    let arrayref = self.stack[self.bp + frame.sp - 3].get_pointer::<Array>();
-                    let index = self.stack[self.bp + frame.sp - 2].get_int() as usize;
+                    let arrayref = self.stack[self.bp + frame.sp - 3] as GcType<Array>;
+                    let index = self.stack[self.bp + frame.sp - 2] as usize;
                     let value = self.stack[self.bp + frame.sp - 1].clone();
                     unsafe { &mut *arrayref }.elements[index] = value;
                     frame.sp -= 3;
                     frame.pc += 1;
                 }
                 Inst::aastore => {
-                    let arrayref = self.stack[self.bp + frame.sp - 3].get_pointer::<Array>();
-                    let index = self.stack[self.bp + frame.sp - 2].get_int() as usize;
+                    let arrayref = self.stack[self.bp + frame.sp - 3] as GcType<Array>;
+                    let index = self.stack[self.bp + frame.sp - 2] as usize;
                     let value = self.stack[self.bp + frame.sp - 1].clone();
                     unsafe { &mut *arrayref }.elements[index] = value;
                     frame.sp -= 3;
                     frame.pc += 1;
                 }
                 Inst::dastore => {
-                    let arrayref = self.stack[self.bp + frame.sp - 4].get_pointer::<Array>();
-                    let index = self.stack[self.bp + frame.sp - 3].get_int() as usize;
+                    let arrayref = self.stack[self.bp + frame.sp - 4] as GcType<Array>;
+                    let index = self.stack[self.bp + frame.sp - 3] as usize;
                     let value = self.stack[self.bp + frame.sp - 2];
                     unsafe { &mut *arrayref }.elements[index] = value;
                     frame.sp -= 4;
                     frame.pc += 1;
                 }
                 Inst::bipush => {
-                    self.stack[self.bp + frame.sp] = Variable::Byte(code[frame.pc + 1] as i8);
+                    self.stack[self.bp + frame.sp] = code[frame.pc + 1] as u64;
                     frame.sp += 1;
                     frame.pc += 2;
                 }
                 Inst::iadd => {
-                    self.stack[self.bp + frame.sp - 2] = Variable::Int(
-                        self.stack[self.bp + frame.sp - 2].get_int()
-                            + self.stack[self.bp + frame.sp - 1].get_int(),
-                    );
+                    self.stack[self.bp + frame.sp - 2] = (self.stack[self.bp + frame.sp - 2] as i32
+                        + self.stack[self.bp + frame.sp - 1] as i32)
+                        as u64;
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::dadd => {
-                    self.stack[self.bp + frame.sp - 4] = Variable::Double(
-                        self.stack[self.bp + frame.sp - 4].get_double()
-                            + self.stack[self.bp + frame.sp - 2].get_double(),
-                    );
+                    self.stack[self.bp + frame.sp - 4] =
+                        d2u(u2d(self.stack[self.bp + frame.sp - 4])
+                            + u2d(self.stack[self.bp + frame.sp - 2]));
                     frame.sp -= 2;
                     frame.pc += 1;
                 }
                 Inst::isub => {
-                    self.stack[self.bp + frame.sp - 2] = Variable::Int(
-                        self.stack[self.bp + frame.sp - 2].get_int()
-                            - self.stack[self.bp + frame.sp - 1].get_int(),
-                    );
+                    self.stack[self.bp + frame.sp - 2] = ((self.stack[self.bp + frame.sp - 2]
+                        as i32)
+                        - (self.stack[self.bp + frame.sp - 1] as i32))
+                        as u64;
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::dsub => {
-                    self.stack[self.bp + frame.sp - 4] = Variable::Double(
-                        self.stack[self.bp + frame.sp - 4].get_double()
-                            - self.stack[self.bp + frame.sp - 2].get_double(),
-                    );
+                    self.stack[self.bp + frame.sp - 4] =
+                        d2u(u2d(self.stack[self.bp + frame.sp - 4])
+                            - u2d(self.stack[self.bp + frame.sp - 2]));
                     frame.sp -= 2;
                     frame.pc += 1;
                 }
                 Inst::imul => {
-                    self.stack[self.bp + frame.sp - 2] = Variable::Int(
-                        self.stack[self.bp + frame.sp - 2].get_int()
-                            * self.stack[self.bp + frame.sp - 1].get_int(),
-                    );
+                    self.stack[self.bp + frame.sp - 2] = ((self.stack[self.bp + frame.sp - 2]
+                        as i32)
+                        * (self.stack[self.bp + frame.sp - 1] as i32))
+                        as u64;
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::idiv => {
-                    self.stack[self.bp + frame.sp - 2] = Variable::Int(
-                        self.stack[self.bp + frame.sp - 2].get_int()
-                            / self.stack[self.bp + frame.sp - 1].get_int(),
-                    );
+                    self.stack[self.bp + frame.sp - 2] = ((self.stack[self.bp + frame.sp - 2]
+                        as i32)
+                        / (self.stack[self.bp + frame.sp - 1] as i32))
+                        as u64;
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::dmul => {
-                    self.stack[self.bp + frame.sp - 4] = Variable::Double(
-                        self.stack[self.bp + frame.sp - 4].get_double()
-                            * self.stack[self.bp + frame.sp - 2].get_double(),
-                    );
+                    self.stack[self.bp + frame.sp - 4] =
+                        d2u(u2d(self.stack[self.bp + frame.sp - 4])
+                            * u2d(self.stack[self.bp + frame.sp - 2]));
                     frame.sp -= 2;
                     frame.pc += 1;
                 }
                 Inst::ddiv => {
-                    self.stack[self.bp + frame.sp - 4] = Variable::Double(
-                        self.stack[self.bp + frame.sp - 4].get_double()
-                            / self.stack[self.bp + frame.sp - 2].get_double(),
-                    );
+                    self.stack[self.bp + frame.sp - 4] =
+                        d2u(u2d(self.stack[self.bp + frame.sp - 4])
+                            / u2d(self.stack[self.bp + frame.sp - 2]));
                     frame.sp -= 2;
                     frame.pc += 1;
                 }
                 Inst::irem => {
-                    self.stack[self.bp + frame.sp - 2] = Variable::Int(
-                        self.stack[self.bp + frame.sp - 2].get_int()
-                            % self.stack[self.bp + frame.sp - 1].get_int(),
-                    );
+                    self.stack[self.bp + frame.sp - 2] = (self.stack[self.bp + frame.sp - 2] as i32
+                        % self.stack[self.bp + frame.sp - 1] as i32)
+                        as u64;
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::dneg => {
                     self.stack[self.bp + frame.sp - 2] =
-                        Variable::Double(-self.stack[self.bp + frame.sp - 2].get_double());
+                        d2u(-u2d(self.stack[self.bp + frame.sp - 2]));
                     frame.pc += 1;
                 }
                 Inst::ishl => {
-                    self.stack[self.bp + frame.sp - 2] = Variable::Int(
-                        self.stack[self.bp + frame.sp - 2].get_int()
-                            << self.stack[self.bp + frame.sp - 1].get_int(),
-                    );
+                    self.stack[self.bp + frame.sp - 2] = ((self.stack[self.bp + frame.sp - 2]
+                        as i32)
+                        << self.stack[self.bp + frame.sp - 1] as i32)
+                        as u64;
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::ishr => {
-                    self.stack[self.bp + frame.sp - 2] = Variable::Int(
-                        self.stack[self.bp + frame.sp - 2].get_int()
-                            >> self.stack[self.bp + frame.sp - 1].get_int(),
-                    );
+                    self.stack[self.bp + frame.sp - 2] = (self.stack[self.bp + frame.sp - 2] as i32
+                        >> self.stack[self.bp + frame.sp - 1] as i32)
+                        as u64;
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::iand => {
-                    self.stack[self.bp + frame.sp - 2] = Variable::Int(
-                        self.stack[self.bp + frame.sp - 2].get_int()
-                            & self.stack[self.bp + frame.sp - 1].get_int(),
-                    );
+                    self.stack[self.bp + frame.sp - 2] = (self.stack[self.bp + frame.sp - 2] as i32
+                        & self.stack[self.bp + frame.sp - 1] as i32)
+                        as u64;
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::ixor => {
-                    self.stack[self.bp + frame.sp - 2] = Variable::Int(
-                        self.stack[self.bp + frame.sp - 2].get_int()
-                            ^ self.stack[self.bp + frame.sp - 1].get_int(),
-                    );
+                    self.stack[self.bp + frame.sp - 2] = (self.stack[self.bp + frame.sp - 2] as i32
+                        ^ self.stack[self.bp + frame.sp - 1] as i32)
+                        as u64;
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::iinc => {
                     let index = code[frame.pc + 1] as usize;
                     let const_ = code[frame.pc + 2];
-                    match self.stack[self.bp + index] {
-                        Variable::Short(ref mut n) => *n += const_ as i16,
-                        Variable::Int(ref mut n) => *n += const_ as i32,
-                        _ => panic!("must be int"),
-                    }
+                    self.stack[self.bp + index] += const_ as u64;
                     frame.pc += 3;
                 }
                 Inst::i2d => {
                     self.stack[self.bp + frame.sp - 1] =
-                        Variable::Double(self.stack[self.bp + frame.sp - 1].get_int() as f64);
+                        d2u(self.stack[self.bp + frame.sp - 1] as f64);
                     frame.sp += 1;
                     frame.pc += 1;
                 }
                 Inst::d2i => {
                     self.stack[self.bp + frame.sp - 2] =
-                        Variable::Int(self.stack[self.bp + frame.sp - 2].get_double() as i32);
+                        u2d(self.stack[self.bp + frame.sp - 2]) as i32 as u64;
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::i2s => {
                     self.stack[self.bp + frame.sp - 1] =
-                        Variable::Short(self.stack[self.bp + frame.sp - 1].get_int() as i16);
+                        (self.stack[self.bp + frame.sp - 1] as i16) as u64;
                     frame.pc += 1;
                 }
                 Inst::invokestatic => self.run_invoke_static(true),
@@ -490,43 +470,43 @@ impl VM {
                     frame.pc += 1;
                 }
                 Inst::dup2_x1 => {
-                    let form2 = match self.stack[self.bp + frame.sp - 2] {
-                        Variable::Double(_) => true,
-                        _ => false,
-                    };
-                    if form2 {
-                        let val1 = self.stack[self.bp + frame.sp - 2];
-                        let val2 = self.stack[self.bp + frame.sp - 3];
-                        self.stack[self.bp + frame.sp - 3] = val1;
-                        self.stack[self.bp + frame.sp - 1] = val2;
-                        self.stack[self.bp + frame.sp + 0] = val1;
-                    } else {
-                        let val1 = self.stack[self.bp + frame.sp - 1];
-                        let val2 = self.stack[self.bp + frame.sp - 2];
-                        let val3 = self.stack[self.bp + frame.sp - 3];
-                        self.stack[self.bp + frame.sp - 3] = val2;
-                        self.stack[self.bp + frame.sp - 2] = val1;
-                        self.stack[self.bp + frame.sp - 1] = val3;
-                        self.stack[self.bp + frame.sp + 0] = val2;
-                        self.stack[self.bp + frame.sp + 1] = val1;
-                    }
+                    // let form2 = match self.stack[self.bp + frame.sp - 2] {
+                    //     Variable::Double(_) => true,
+                    //     _ => false,
+                    // };
+                    // if form2 {
+                    //     let val1 = self.stack[self.bp + frame.sp - 2];
+                    //     let val2 = self.stack[self.bp + frame.sp - 3];
+                    //     self.stack[self.bp + frame.sp - 3] = val1;
+                    //     self.stack[self.bp + frame.sp - 1] = val2;
+                    //     self.stack[self.bp + frame.sp + 0] = val1;
+                    // } else {
+                    let val1 = self.stack[self.bp + frame.sp - 1];
+                    let val2 = self.stack[self.bp + frame.sp - 2];
+                    let val3 = self.stack[self.bp + frame.sp - 3];
+                    self.stack[self.bp + frame.sp - 3] = val2;
+                    self.stack[self.bp + frame.sp - 2] = val1;
+                    self.stack[self.bp + frame.sp - 1] = val3;
+                    self.stack[self.bp + frame.sp + 0] = val2;
+                    self.stack[self.bp + frame.sp + 1] = val1;
+                    // }
                     frame.sp += 2;
                     frame.pc += 1;
                 }
                 Inst::dup2 => {
-                    let form2 = match self.stack[self.bp + frame.sp - 2] {
-                        Variable::Double(_) => true,
-                        _ => false,
-                    };
-                    if form2 {
-                        let val = self.stack[self.bp + frame.sp - 2];
-                        self.stack[self.bp + frame.sp] = val;
-                    } else {
-                        let val1 = self.stack[self.bp + frame.sp - 1];
-                        let val2 = self.stack[self.bp + frame.sp - 2];
-                        self.stack[self.bp + frame.sp + 0] = val2;
-                        self.stack[self.bp + frame.sp + 1] = val1;
-                    }
+                    // let form2 = match self.stack[self.bp + frame.sp - 2] {
+                    //     Variable::Double(_) => true,
+                    //     _ => false,
+                    // };
+                    // if form2 {
+                    //     let val = self.stack[self.bp + frame.sp - 2];
+                    //     self.stack[self.bp + frame.sp] = val;
+                    // } else {
+                    let val1 = self.stack[self.bp + frame.sp - 1];
+                    let val2 = self.stack[self.bp + frame.sp - 2];
+                    self.stack[self.bp + frame.sp + 0] = val2;
+                    self.stack[self.bp + frame.sp + 1] = val1;
+                    // }
                     frame.sp += 2;
                     frame.pc += 1;
                 }
@@ -536,25 +516,28 @@ impl VM {
                     loop_jit!(frame, dst < frame.pc, dst, frame.pc + 3, frame.pc = dst);
                 }
                 Inst::dcmpl | Inst::dcmpg => {
-                    let val2 = self.stack[self.bp + frame.sp - 2].get_double();
-                    let val1 = self.stack[self.bp + frame.sp - 4].get_double();
+                    let val2 = u2d(self.stack[self.bp + frame.sp - 2]);
+                    let val1 = u2d(self.stack[self.bp + frame.sp - 4]);
                     frame.sp -= 4;
                     if val1 > val2 {
-                        self.stack[self.bp + frame.sp] = Variable::Int(1);
+                        self.stack[self.bp + frame.sp] = 1;
                     } else if val1 == val2 {
-                        self.stack[self.bp + frame.sp] = Variable::Int(0);
+                        self.stack[self.bp + frame.sp] = 0;
                     } else if val1 < val2 {
-                        self.stack[self.bp + frame.sp] = Variable::Int(-1);
+                        self.stack[self.bp + frame.sp] = (0 - 1) as u64;
                     } else if val1.is_nan() || val2.is_nan() {
-                        self.stack[self.bp + frame.sp] =
-                            Variable::Int(if cur_code == Inst::dcmpg { 1 } else { -1 });
+                        self.stack[self.bp + frame.sp] = if cur_code == Inst::dcmpg {
+                            1
+                        } else {
+                            (0 - 1) as u64
+                        };
                     }
                     frame.sp += 1;
                     frame.pc += 1;
                 }
                 Inst::ifeq => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
-                    let val = self.stack[self.bp + frame.sp - 1].get_int();
+                    let val = self.stack[self.bp + frame.sp - 1] as i32;
                     frame.sp -= 1;
                     let dst = (frame.pc as isize + branch as isize) as usize;
                     loop_jit!(
@@ -571,7 +554,7 @@ impl VM {
                 }
                 Inst::ifne => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
-                    let val = self.stack[self.bp + frame.sp - 1].get_int();
+                    let val = self.stack[self.bp + frame.sp - 1] as i32;
                     frame.sp -= 1;
                     let dst = (frame.pc as isize + branch as isize) as usize;
                     loop_jit!(
@@ -588,7 +571,7 @@ impl VM {
                 }
                 Inst::iflt => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
-                    let val = self.stack[self.bp + frame.sp - 1].get_int();
+                    let val = self.stack[self.bp + frame.sp - 1] as i32;
                     frame.sp -= 1;
                     let dst = (frame.pc as isize + branch as isize) as usize;
                     loop_jit!(
@@ -605,7 +588,7 @@ impl VM {
                 }
                 Inst::ifle => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
-                    let val = self.stack[self.bp + frame.sp - 1].get_int();
+                    let val = self.stack[self.bp + frame.sp - 1] as i32;
                     frame.sp -= 1;
                     let dst = (frame.pc as isize + branch as isize) as usize;
                     loop_jit!(
@@ -622,7 +605,7 @@ impl VM {
                 }
                 Inst::ifge => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
-                    let val = self.stack[self.bp + frame.sp - 1].get_int();
+                    let val = self.stack[self.bp + frame.sp - 1] as i32;
                     frame.sp -= 1;
                     let dst = (frame.pc as isize + branch as isize) as usize;
                     loop_jit!(
@@ -639,7 +622,7 @@ impl VM {
                 }
                 Inst::ifnull => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
-                    let val = self.stack[self.bp + frame.sp - 1].get_pointer::<u64>();
+                    let val = self.stack[self.bp + frame.sp - 1] as GcType<u64>;
                     frame.sp -= 1;
                     let dst = (frame.pc as isize + branch as isize) as usize;
                     loop_jit!(
@@ -656,7 +639,7 @@ impl VM {
                 }
                 Inst::ifnonnull => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
-                    let val = self.stack[self.bp + frame.sp - 1].get_pointer::<u64>();
+                    let val = self.stack[self.bp + frame.sp - 1] as GcType<u64>;
                     frame.sp -= 1;
                     let dst = (frame.pc as isize + branch as isize) as usize;
                     loop_jit!(
@@ -673,8 +656,8 @@ impl VM {
                 }
                 Inst::if_icmpeq => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
-                    let val2 = self.stack[self.bp + frame.sp - 1].get_int();
-                    let val1 = self.stack[self.bp + frame.sp - 2].get_int();
+                    let val2 = self.stack[self.bp + frame.sp - 1] as i32;
+                    let val1 = self.stack[self.bp + frame.sp - 2] as i32;
                     frame.sp -= 2;
                     let dst = (frame.pc as isize + branch as isize) as usize;
                     loop_jit!(frame, dst < frame.pc, dst, frame.pc + 3, {
@@ -687,8 +670,8 @@ impl VM {
                 }
                 Inst::if_icmpne => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
-                    let val2 = self.stack[self.bp + frame.sp - 1].get_int();
-                    let val1 = self.stack[self.bp + frame.sp - 2].get_int();
+                    let val2 = self.stack[self.bp + frame.sp - 1] as i32;
+                    let val1 = self.stack[self.bp + frame.sp - 2] as i32;
                     frame.sp -= 2;
                     let dst = (frame.pc as isize + branch as isize) as usize;
                     loop_jit!(frame, dst < frame.pc, dst, frame.pc + 3, {
@@ -701,8 +684,8 @@ impl VM {
                 }
                 Inst::if_icmpge => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
-                    let val2 = self.stack[self.bp + frame.sp - 1].get_int();
-                    let val1 = self.stack[self.bp + frame.sp - 2].get_int();
+                    let val2 = self.stack[self.bp + frame.sp - 1] as i32;
+                    let val1 = self.stack[self.bp + frame.sp - 2] as i32;
                     frame.sp -= 2;
                     let dst = (frame.pc as isize + branch as isize) as usize;
                     loop_jit!(
@@ -719,8 +702,8 @@ impl VM {
                 }
                 Inst::if_icmpgt => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
-                    let val2 = self.stack[self.bp + frame.sp - 1].get_int();
-                    let val1 = self.stack[self.bp + frame.sp - 2].get_int();
+                    let val2 = self.stack[self.bp + frame.sp - 1] as i32;
+                    let val1 = self.stack[self.bp + frame.sp - 2] as i32;
                     frame.sp -= 2;
                     let dst = (frame.pc as isize + branch as isize) as usize;
                     loop_jit!(
@@ -737,8 +720,8 @@ impl VM {
                 }
                 Inst::if_icmplt => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
-                    let val2 = self.stack[self.bp + frame.sp - 1].get_int();
-                    let val1 = self.stack[self.bp + frame.sp - 2].get_int();
+                    let val2 = self.stack[self.bp + frame.sp - 1] as i32;
+                    let val1 = self.stack[self.bp + frame.sp - 2] as i32;
                     frame.sp -= 2;
                     let dst = (frame.pc as isize + branch as isize) as usize;
                     loop_jit!(
@@ -755,8 +738,8 @@ impl VM {
                 }
                 Inst::if_acmpne => {
                     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
-                    let val2 = self.stack[self.bp + frame.sp - 1].get_pointer::<u64>();
-                    let val1 = self.stack[self.bp + frame.sp - 2].get_pointer::<u64>();
+                    let val2 = self.stack[self.bp + frame.sp - 1] as GcType<u64>;
+                    let val1 = self.stack[self.bp + frame.sp - 2] as GcType<u64>;
                     frame.sp -= 2;
                     let dst = (frame.pc as isize + branch as isize) as usize;
                     loop_jit!(frame, dst < frame.pc, dst, frame.pc + 3, {
@@ -806,9 +789,9 @@ impl VM {
                     frame.pc += 1;
                 }
                 Inst::arraylength => {
-                    let objectref = &self.stack[self.bp + frame.sp - 1];
-                    let array = unsafe { &mut *objectref.get_pointer::<Array>() };
-                    self.stack[self.bp + frame.sp - 1] = Variable::Int(array.get_length() as i32);
+                    let objectref = self.stack[self.bp + frame.sp - 1];
+                    let array = unsafe { &mut *(objectref as GcType<Array>) };
+                    self.stack[self.bp + frame.sp - 1] = array.get_length() as u64;
                     frame.pc += 1;
                 }
                 e => unimplemented!("{}", e),
@@ -833,17 +816,17 @@ impl VM {
             "java/io/PrintStream.println:(I)V" => {
                 native_functions::java_io_printstream_println_i_v(
                     self.runtime_env,
-                    self.stack[self.bp].get_pointer::<ObjectBody>(),
-                    self.stack[self.bp + 1].get_int(),
+                    self.stack[self.bp] as GcType<ObjectBody>,
+                    self.stack[self.bp + 1] as i32,
                 );
             }
             "java/io/PrintStream.println:(D)V" => {
-                println!("{}", self.stack[self.bp + 1].get_double());
+                println!("{}", u2d(self.stack[self.bp + 1]));
             }
             "java/io/PrintStream.println:(Z)V" => {
                 println!(
                     "{}",
-                    if self.stack[self.bp + 1].get_int() == 0 {
+                    if self.stack[self.bp + 1] == 0 {
                         false
                     } else {
                         true
@@ -853,89 +836,83 @@ impl VM {
             "java/io/PrintStream.println:(Ljava/lang/String;)V" => {
                 native_functions::java_io_printstream_println_string_v(
                     self.runtime_env,
-                    self.stack[self.bp + 0].get_pointer::<ObjectBody>(),
-                    self.stack[self.bp + 1].get_pointer::<ObjectBody>(),
+                    self.stack[self.bp + 0] as GcType<ObjectBody>,
+                    self.stack[self.bp + 1] as GcType<ObjectBody>,
                 );
             }
             "java/io/PrintStream.print:(Ljava/lang/String;)V" => {
                 native_functions::java_io_printstream_print_string_v(
                     self.runtime_env,
-                    self.stack[self.bp + 0].get_pointer::<ObjectBody>(),
-                    self.stack[self.bp + 1].get_pointer::<ObjectBody>(),
+                    self.stack[self.bp + 0] as GcType<ObjectBody>,
+                    self.stack[self.bp + 1] as GcType<ObjectBody>,
                 );
             }
             "java/lang/String.valueOf:(I)Ljava/lang/String;" => {
-                let i = self.stack[self.bp + 0].get_int();
+                let i = self.stack[self.bp + 0] as i32;
                 self.stack[self.bp + 0] =
                     objectheap.create_string_object(format!("{}", i), self.classheap);
             }
             "java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;" => {
                 native_functions::java_lang_stringbuilder_append_string_stringbuilder(
                     self.runtime_env,
-                    self.stack[self.bp + 0].get_pointer::<ObjectBody>(),
-                    self.stack[self.bp + frame.sp - 1].get_pointer::<ObjectBody>(),
+                    self.stack[self.bp + 0] as GcType<ObjectBody>,
+                    self.stack[self.bp + frame.sp - 1] as GcType<ObjectBody>,
                 );
             }
             "java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;" => {
                 native_functions::java_lang_stringbuilder_append_i_stringbuilder(
                     self.runtime_env,
-                    self.stack[self.bp + 0].get_pointer::<ObjectBody>(),
-                    self.stack[self.bp + frame.sp - 1].get_int(),
+                    self.stack[self.bp + 0] as GcType<ObjectBody>,
+                    self.stack[self.bp + frame.sp - 1] as i32,
                 );
             }
             "java/lang/StringBuilder.toString:()Ljava/lang/String;" => {
                 let s = native_functions::java_lang_stringbuilder_tostring_string(
                     self.runtime_env,
-                    self.stack[self.bp + 0].get_pointer::<ObjectBody>(),
+                    self.stack[self.bp + 0] as GcType<ObjectBody>,
                 );
-                self.stack[self.bp + 0] = Variable::Pointer(s as *mut u64);
+                self.stack[self.bp + 0] = s as u64;
             }
             "java/lang/Math.random:()D" => {
                 self.stack[self.bp + 0] =
-                    Variable::Double(native_functions::java_lang_math_random_d(self.runtime_env))
+                    d2u(native_functions::java_lang_math_random_d(self.runtime_env))
             }
             "java/lang/Math.sin:(D)D" => {
-                self.stack[self.bp + 0] =
-                    Variable::Double(native_functions::java_lang_math_sin_d_d(
-                        self.runtime_env,
-                        self.stack[self.bp + 0].get_double(),
-                    ))
+                self.stack[self.bp + 0] = d2u(native_functions::java_lang_math_sin_d_d(
+                    self.runtime_env,
+                    u2d(self.stack[self.bp + 0]),
+                ))
             }
             "java/lang/Math.cos:(D)D" => {
-                self.stack[self.bp + 0] =
-                    Variable::Double(native_functions::java_lang_math_cos_d_d(
-                        self.runtime_env,
-                        self.stack[self.bp + 0].get_double(),
-                    ))
+                self.stack[self.bp + 0] = d2u(native_functions::java_lang_math_cos_d_d(
+                    self.runtime_env,
+                    u2d(self.stack[self.bp + 0]),
+                ))
             }
             "java/lang/Math.tan:(D)D" => {
-                self.stack[self.bp + 0] =
-                    Variable::Double(native_functions::java_lang_math_tan_d_d(
-                        self.runtime_env,
-                        self.stack[self.bp + 0].get_double(),
-                    ))
+                self.stack[self.bp + 0] = d2u(native_functions::java_lang_math_tan_d_d(
+                    self.runtime_env,
+                    u2d(self.stack[self.bp + 0]),
+                ))
             }
             "java/lang/Math.sqrt:(D)D" => {
-                self.stack[self.bp + 0] =
-                    Variable::Double(native_functions::java_lang_math_sqrt_d_d(
-                        self.runtime_env,
-                        self.stack[self.bp + 0].get_double(),
-                    ))
+                self.stack[self.bp + 0] = d2u(native_functions::java_lang_math_sqrt_d_d(
+                    self.runtime_env,
+                    u2d(self.stack[self.bp + 0]),
+                ))
             }
             "java/lang/Math.pow:(DD)D" => {
-                self.stack[self.bp + 0] =
-                    Variable::Double(native_functions::java_lang_math_pow_dd_d(
-                        self.runtime_env,
-                        self.stack[self.bp + 0].get_double(),
-                        self.stack[self.bp + 2].get_double(),
-                    ))
+                self.stack[self.bp + 0] = d2u(native_functions::java_lang_math_pow_dd_d(
+                    self.runtime_env,
+                    u2d(self.stack[self.bp + 0]),
+                    u2d(self.stack[self.bp + 2]),
+                ))
             }
             "java/lang/Math.abs:(D)D" => {
-                self.stack[self.bp + 0] =
-                    Variable::Double(native_functions::java_lang_math_abs_d_d(
-                        self.runtime_env,
-                        self.stack[self.bp + 0].get_double(),
-                    ))
+                self.stack[self.bp + 0] = d2u(native_functions::java_lang_math_abs_d_d(
+                    self.runtime_env,
+                    u2d(self.stack[self.bp + 0]),
+                ))
             }
             e => panic!("{:?}", e),
         }
@@ -954,8 +931,7 @@ impl VM {
             .unwrap()
             .read_u16_from_code(frame.pc + 1);
 
-        let objectref =
-            unsafe { &mut *self.stack[self.bp + frame.sp - 1].get_pointer::<ObjectBody>() };
+        let objectref = unsafe { &mut *(self.stack[self.bp + frame.sp - 1] as GcType<ObjectBody>) };
 
         let name_and_type_index = fld!(
             Constant::FieldrefInfo,
@@ -971,7 +947,7 @@ impl VM {
             .get_utf8()
             .unwrap();
 
-        let class = unsafe { &*objectref.class.get_pointer::<Class>() };
+        let class = unsafe { &*objectref.class };
         let (id, ty) = *class.get_numbered_field_info(name.as_str()).unwrap();
 
         assert!(id <= 0xff);
@@ -1022,9 +998,9 @@ impl VM {
             _ => 1,
         };
         let objectref =
-            unsafe { &mut *self.stack[self.bp + frame.sp - (i + 1)].get_pointer::<ObjectBody>() };
+            unsafe { &mut *(self.stack[self.bp + frame.sp - (i + 1)] as GcType<ObjectBody>) };
 
-        let class = unsafe { &*objectref.class.get_pointer::<Class>() };
+        let class = unsafe { &*objectref.class };
         let id = class.get_numbered_field_info(name.as_str()).unwrap().0;
 
         assert!(id <= 0xff);
@@ -1051,8 +1027,7 @@ impl VM {
             .read_u16_from_code(frame.pc + 1);
         frame.pc += 3;
 
-        let objectref =
-            unsafe { &mut *self.stack[self.bp + frame.sp - 1].get_pointer::<ObjectBody>() };
+        let objectref = unsafe { &mut *(self.stack[self.bp + frame.sp - 1] as GcType<ObjectBody>) };
         let value = objectref.variables[id];
         self.stack[self.bp + frame.sp - 1] = value;
     }
@@ -1071,8 +1046,7 @@ impl VM {
         frame.pc += 3;
 
         let value = self.stack[self.bp + frame.sp - 1];
-        let objectref =
-            unsafe { &mut *self.stack[self.bp + frame.sp - 2].get_pointer::<ObjectBody>() };
+        let objectref = unsafe { &mut *(self.stack[self.bp + frame.sp - 2] as GcType<ObjectBody>) };
         frame.sp -= 2;
 
         objectref.variables[id] = value;
@@ -1091,8 +1065,7 @@ impl VM {
             .read_u16_from_code(frame.pc + 1);
         frame.pc += 3;
 
-        let objectref =
-            unsafe { &mut *self.stack[self.bp + frame.sp - 1].get_pointer::<ObjectBody>() };
+        let objectref = unsafe { &mut *(self.stack[self.bp + frame.sp - 1] as GcType<ObjectBody>) };
         let value = objectref.variables[id];
         self.stack[self.bp + frame.sp - 1] = value;
         frame.sp += 1;
@@ -1109,8 +1082,7 @@ impl VM {
         frame.pc += 3;
 
         let value = self.stack[self.bp + frame.sp - 2];
-        let objectref =
-            unsafe { &mut *self.stack[self.bp + frame.sp - 3].get_pointer::<ObjectBody>() };
+        let objectref = unsafe { &mut *(self.stack[self.bp + frame.sp - 3] as GcType<ObjectBody>) };
         frame.sp -= 3;
 
         objectref.variables[id] = value;
@@ -1381,7 +1353,7 @@ impl VM {
         };
         frame.pc += 2;
 
-        let size = self.stack[self.bp + frame.sp - 1].get_int() as usize;
+        let size = self.stack[self.bp + frame.sp - 1] as usize;
         self.stack[self.bp + frame.sp - 1] =
             unsafe { &mut *self.objectheap }.create_array(atype, size);
 
@@ -1409,7 +1381,7 @@ impl VM {
             .unwrap();
         let class = load_class(self.classheap, self.objectheap, class_name);
 
-        let size = self.stack[self.bp + frame.sp - 1].get_int() as usize;
+        let size = self.stack[self.bp + frame.sp - 1] as usize;
         self.stack[self.bp + frame.sp - 1] =
             unsafe { &mut *self.objectheap }.create_obj_array(class, size);
 
@@ -1488,12 +1460,12 @@ pub fn load_class_with_filename(
 
     let class_ptr = gc::new(Class::new());
 
+    unsafe { (*class_ptr).classheap = Some(classheap) };
+
     expect!(
         unsafe { &mut *classheap }.load_class(filename, class_ptr),
         format!("Couldn't load file '{}'", filename)
     );
-
-    unsafe { (*class_ptr).classheap = Some(classheap) };
 
     let mut vm = VM::new(classheap, objectheap);
     let object = unsafe { &mut *objectheap }.create_object(class_ptr);
@@ -1541,6 +1513,16 @@ pub fn load_class(
 
     let filename = format!("./examples/{}.class", class_name);
     load_class_with_filename(classheap, objectheap, filename.as_str())
+}
+
+#[inline]
+pub fn d2u(f: f64) -> u64 {
+    unsafe { transmute::<f64, u64>(f) }
+}
+
+#[inline]
+pub fn u2d(u: u64) -> f64 {
+    unsafe { transmute::<u64, f64>(u) }
 }
 
 #[rustfmt::skip]

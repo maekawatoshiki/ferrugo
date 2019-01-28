@@ -82,7 +82,7 @@ pub enum Constant {
     },
     Utf8 {
         s: String,
-        java_string: Option<Variable>,
+        java_string: Option<GcType<ObjectBody>>,
     },
     NameAndTypeInfo {
         name_index: u16,
@@ -124,9 +124,7 @@ impl Constant {
 
     pub fn get_java_string_utf8(&self) -> Option<GcType<ObjectBody>> {
         match self {
-            Constant::Utf8 { java_string, .. } => {
-                Some(java_string.unwrap().get_pointer::<ObjectBody>())
-            }
+            Constant::Utf8 { java_string, .. } => Some(java_string.unwrap()),
             _ => None,
         }
     }

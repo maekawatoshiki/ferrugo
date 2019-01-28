@@ -50,8 +50,8 @@ pub enum Variable {
 
 #[derive(Debug, Clone)]
 pub struct ObjectBody {
-    pub class: Variable,
-    pub variables: Vec<Variable>,
+    pub class: GcType<Class>,
+    pub variables: Vec<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -70,7 +70,7 @@ pub enum AType {
 #[derive(Debug, Clone)]
 pub struct Array {
     pub atype: AType,
-    pub elements: Vec<Variable>,
+    pub elements: Vec<u64>,
     // TODO: Treat as special. Need a better way.
     pub string: Option<String>,
 }
@@ -143,7 +143,7 @@ impl Variable {
 
 impl ObjectBody {
     pub fn get_string_mut(&mut self) -> &mut String {
-        unsafe { &mut *(self.variables[0].get_pointer::<Array>()) }
+        unsafe { &mut *(self.variables[0] as GcType<Array>) }
             .string
             .as_mut()
             .unwrap()

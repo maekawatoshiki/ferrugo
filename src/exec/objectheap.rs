@@ -13,67 +13,51 @@ impl ObjectHeap {
         ObjectHeap {}
     }
 
-    pub fn create_object(&mut self, class: GcType<Class>) -> Variable {
+    pub fn create_object(&mut self, class: GcType<Class>) -> u64 {
         let class_field_count = unsafe { &*class }.get_object_field_count();
         let obj = gc::new(ObjectBody {
-            class: Variable::Pointer(class as *mut u64),
-            variables: vec![Variable::Int(0); class_field_count],
+            class,
+            variables: vec![0; class_field_count],
         });
 
-        Variable::Pointer(obj as *mut u64)
+        obj as u64
     }
 
-    pub fn create_string_object(
-        &mut self,
-        string: String,
-        classheap: GcType<ClassHeap>,
-    ) -> Variable {
+    pub fn create_string_object(&mut self, string: String, classheap: GcType<ClassHeap>) -> u64 {
         let class = load_class(classheap, self, "java/lang/String");
         let object = self.create_object(class);
 
-        unsafe { &mut *object.get_pointer::<ObjectBody>() }
+        unsafe { &mut *(object as GcType<ObjectBody>) }
             .variables
             .insert(
                 0,
-                Variable::Pointer(gc::new(Array {
+                gc::new(Array {
                     atype: AType::Char,
                     elements: vec![],
                     string: Some(string),
-                }) as GcType<u64>),
+                }) as u64,
             );
 
         object
     }
 
-    pub fn create_array(&mut self, atype: AType, size: usize) -> Variable {
+    pub fn create_array(&mut self, atype: AType, size: usize) -> u64 {
         let array = Array {
             atype,
-            elements: {
-                let mut elements = vec![];
-                for _ in 0..size {
-                    elements.push(Variable::Int(0));
-                }
-                elements
-            },
+            elements: { vec![0; size] },
             string: None,
         };
 
-        Variable::Pointer(gc::new(array) as GcType<u64>)
+        gc::new(array) as u64
     }
 
-    pub fn create_obj_array(&mut self, class: GcType<Class>, size: usize) -> Variable {
+    pub fn create_obj_array(&mut self, class: GcType<Class>, size: usize) -> u64 {
         let array = Array {
             atype: AType::Class(class),
-            elements: {
-                let mut elements = vec![];
-                for _ in 0..size {
-                    elements.push(Variable::Int(0));
-                }
-                elements
-            },
+            elements: { vec![0; size] },
             string: None,
         };
 
-        Variable::Pointer(gc::new(array) as GcType<u64>)
+        gc::new(array) as u64
     }
 }

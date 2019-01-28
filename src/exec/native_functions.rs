@@ -1,4 +1,5 @@
 use super::super::class::class::Class;
+use super::super::gc::gc::GcType;
 use super::jit::*;
 use super::{
     frame::{ObjectBody, VariableType},
@@ -149,7 +150,7 @@ pub extern "C" fn java_lang_stringbuilder_append_i_stringbuilder(
     let string_builder = unsafe { &mut *obj };
     unsafe {
         let string = &mut string_builder.variables[0];
-        let mut string2 = (&mut *string.get_pointer::<ObjectBody>())
+        let mut string2 = (&mut *(*string as GcType<ObjectBody>))
             .get_string_mut()
             .clone();
         string2.push_str(format!("{}", i).as_str());
@@ -169,7 +170,7 @@ pub extern "C" fn java_lang_stringbuilder_append_string_stringbuilder(
     let append_str = unsafe { (&mut *s).get_string_mut() };
     unsafe {
         let string = &mut string_builder.variables[0];
-        let mut string2 = (&mut *string.get_pointer::<ObjectBody>())
+        let mut string2 = (&mut *(*string as GcType<ObjectBody>))
             .get_string_mut()
             .clone();
         string2.push_str(append_str);
@@ -185,7 +186,7 @@ pub extern "C" fn java_lang_stringbuilder_tostring_string(
 ) -> *mut ObjectBody {
     let string_builder = unsafe { &mut *obj };
     let s = string_builder.variables[0];
-    s.get_pointer::<ObjectBody>()
+    s as GcType<ObjectBody>
 }
 
 #[no_mangle]
@@ -195,7 +196,7 @@ pub extern "C" fn ferrugo_internal_new(
 ) -> *mut ObjectBody {
     let renv = unsafe { &mut *renv };
     let object = unsafe { &mut *renv.objectheap }.create_object(class);
-    object.get_pointer::<ObjectBody>()
+    object as GcType<ObjectBody>
 }
 
 #[no_mangle]

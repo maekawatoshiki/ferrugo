@@ -6,7 +6,7 @@ use super::{
     cfg::{Block, BrKind},
     frame::{Variable, VariableType},
     native_functions,
-    vm::{load_class, Inst, RuntimeEnvironment},
+    vm::{d2u, load_class, u2d, Inst, RuntimeEnvironment},
 };
 use libc;
 use llvm;
@@ -146,22 +146,24 @@ impl JIT {
 impl JIT {
     pub unsafe fn run_func(
         &self,
-        stack: &mut Vec<Variable>,
+        stack: &mut Vec<u64>,
         bp: usize,
         mut sp: usize,
         exec_info: &FuncJITExecInfo,
     ) -> Option<usize> {
         let mut local_vars = vec![];
+        let mut params_ty_iter = exec_info.params_ty.iter();
 
         let mut i = bp + sp - exec_info.params_len;
         while i < bp + sp {
-            local_vars.push(match stack[i] {
-                Variable::Int(i) => llvm_const_int32(self.context, i as u64),
-                Variable::Double(f) => {
+            let val = stack[i];
+            local_vars.push(match params_ty_iter.next().unwrap() {
+                VariableType::Int => llvm_const_int32(self.context, val),
+                VariableType::Double => {
                     i += 1;
-                    llvm_const_double(self.context, f)
+                    llvm_const_double(self.context, u2d(val))
                 }
-                Variable::Pointer(p) => llvm_const_ptr(self.context, p),
+                VariableType::Pointer => llvm_const_ptr(self.context, val as *mut u64),
                 _ => return None,
             });
             i += 1;
@@ -212,15 +214,15 @@ impl JIT {
 
         match ret_ty {
             VariableType::Int => {
-                stack[bp + sp] = Variable::Int(ret_int as i32);
+                stack[bp + sp] = ret_int as i32 as u64;
                 sp += 1
             }
             VariableType::Double => {
-                stack[bp + sp] = Variable::Double(transmute::<u64, f64>(ret_int));
+                stack[bp + sp] = ret_int as u64;
                 sp += 2
             }
             VariableType::Pointer => {
-                stack[bp + sp] = Variable::Pointer(transmute::<u64, *mut u64>(ret_int));
+                stack[bp + sp] = ret_int as u64;
                 sp += 1
             }
             _ => {}
@@ -233,18 +235,17 @@ impl JIT {
 
     pub unsafe fn run_loop(
         &self,
-        stack: &mut Vec<Variable>,
+        stack: &mut Vec<u64>,
         bp: usize,
         exec_info: &LoopJITExecInfo,
     ) -> Option<usize> {
         let mut raw_local_vars = vec![];
 
-        for (offset, _ty) in &exec_info.local_variables {
-            raw_local_vars.push(match stack[bp + offset] {
-                Variable::Byte(i) => Box::into_raw(Box::new(i as i32)) as *mut libc::c_void,
-                Variable::Short(i) => Box::into_raw(Box::new(i as i32)) as *mut libc::c_void,
-                Variable::Int(i) => Box::into_raw(Box::new(i)) as *mut libc::c_void,
-                Variable::Double(f) => Box::into_raw(Box::new(f)) as *mut libc::c_void,
+        for (offset, ty) in &exec_info.local_variables {
+            let val = stack[bp + offset];
+            raw_local_vars.push(match ty {
+                VariableType::Int => Box::into_raw(Box::new(val as i32)) as *mut libc::c_void,
+                VariableType::Double => Box::into_raw(Box::new(u2d(val))) as *mut libc::c_void,
                 _ => return None,
             });
         }
@@ -255,8 +256,8 @@ impl JIT {
 
         for (i, (offset, ty)) in exec_info.local_variables.iter().enumerate() {
             stack[bp + offset] = match ty {
-                VariableType::Int => Variable::Int(*(raw_local_vars[i] as *mut i32)),
-                VariableType::Double => Variable::Double(*(raw_local_vars[i] as *mut f64)),
+                VariableType::Int => *(raw_local_vars[i] as *mut i32) as u64,
+                VariableType::Double => d2u(*(raw_local_vars[i] as *mut f64)),
                 _ => return None,
             };
             Box::from_raw(raw_local_vars[i]);
@@ -976,15 +977,15 @@ impl JIT {
                             LLVMFloatTypeInContext(self.context),
                             f as f64,
                         )),
-                        Constant::String { string_index } => stack.push(
-                            (&mut *self.cur_class.unwrap())
+                        Constant::String { string_index } => stack.push({
+                            let string_object = (&mut *self.cur_class.unwrap())
                                 .get_java_string_utf8_from_const_pool(
                                     (&mut *self.runtime_env).objectheap,
                                     string_index as usize,
                                 )
-                                .unwrap()
-                                .to_llvm_val(self.context),
-                        ),
+                                .unwrap();
+                            llvm_const_ptr(self.context, string_object as GcType<u64>)
+                        }),
                         _ => return Err(Error::CouldntCompile),
                     };
                 }
@@ -1037,7 +1038,7 @@ impl JIT {
                         .get_utf8()
                         .unwrap();
                     let object = (&*class).get_static_variable(name.as_str()).unwrap();
-                    stack.push(object.to_llvm_val(self.context));
+                    stack.push(llvm_const_ptr(self.context, object as GcType<u64>));
                 }
                 Inst::new => {
                     let cur_class = &mut *self.cur_class.unwrap();

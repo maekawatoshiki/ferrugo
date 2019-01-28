@@ -112,7 +112,7 @@ fn trace(vm: &VM, m: &mut GcStateMap) {
 
     // trace variable stack
     for val in &vm.stack {
-        val.trace(m);
+        trace_ptr(*val as *mut u64, m);
     }
 }
 
@@ -143,23 +143,16 @@ impl Frame {
     }
 }
 
-impl Variable {
-    fn trace(&self, m: &mut GcStateMap) {
-        match self {
-            Variable::Pointer(ptr) => trace_ptr(*ptr, m),
-            _ => {}
-        }
-    }
-}
-
 impl Class {
     fn trace(&self, m: &mut GcStateMap) {
-        self.static_variables.iter().for_each(|(_, v)| v.trace(m));
+        self.static_variables
+            .iter()
+            .for_each(|(_, v)| trace_ptr(*v as *mut u64, m));
         for constant in &self.classfile.constant_pool {
             match constant {
                 Constant::Utf8 { java_string, .. } => {
                     if let Some(java_string) = java_string {
-                        java_string.trace(m);
+                        trace_ptr(*java_string as *mut u64, m);
                     }
                 }
                 _ => {}
@@ -187,12 +180,16 @@ fn trace_ptr(ptr: *mut u64, m: &mut GcStateMap) {
     match info.ty {
         GcTargetType::Array => {
             let ary = unsafe { &*(ptr as *mut Array) };
-            ary.elements.iter().for_each(|v| v.trace(m));
+            ary.elements
+                .iter()
+                .for_each(|v| trace_ptr(*v as *mut u64, m));
         }
         GcTargetType::Object => {
             let obj = unsafe { &*(ptr as *mut ObjectBody) };
-            obj.class.trace(m);
-            obj.variables.iter().for_each(|v| v.trace(m));
+            unsafe { &*obj.class }.trace(m);
+            obj.variables
+                .iter()
+                .for_each(|v| trace_ptr(*v as *mut u64, m));
         }
         GcTargetType::Class => {
             let class = unsafe { &*(ptr as *mut Class) };
