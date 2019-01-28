@@ -107,6 +107,7 @@ fn show_methods(filename: &str) {
 #[test]
 fn run_example() {
     run_file("examples/Hello.class");
+    run_file("examples/MillerRabin.class");
 }
 
 #[test]

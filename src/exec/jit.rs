@@ -1134,10 +1134,8 @@ impl JIT {
                     let jit_info_mgr = (&mut *class).get_jit_info_mgr(name_index, descriptor_index);
                     let jit_func = jit_info_mgr.get_jit_func();
                     let mut renv_need = false;
-                    let llvm_func = if Some((
-                        exec_method.name_index as usize,
-                        exec_method.descriptor_index as usize,
-                    )) == self.cur_func_indices
+                    let llvm_func = if Some((name_index as usize, descriptor_index as usize))
+                        == self.cur_func_indices
                     {
                         self.cur_func.unwrap()
                     } else if let Some(native_func) = {
