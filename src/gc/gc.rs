@@ -2,7 +2,7 @@
 
 use super::super::class::{class::Class, classfile::constant::Constant, classheap::ClassHeap};
 use super::super::exec::{
-    frame::{Array, Frame, ObjectBody, Variable},
+    frame::{Array, Frame, ObjectBody},
     vm::{RuntimeEnvironment, VM},
 };
 use rustc_hash::FxHashMap;
@@ -170,7 +170,11 @@ fn trace_ptr(ptr: *mut u64, m: &mut GcStateMap) {
         return;
     }
 
-    let mut info = GC_MEM.with(|m| m.borrow().get(&ptr).unwrap().clone());
+    let mut info = if let Some(info) = GC_MEM.with(|m| m.borrow().get(&ptr).map(|x| *x)) {
+        info
+    } else {
+        return;
+    };
 
     m.insert(ptr, {
         info.state = GcState::Marked;

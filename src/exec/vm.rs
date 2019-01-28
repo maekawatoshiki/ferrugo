@@ -4,7 +4,7 @@ use super::super::class::classfile::{method, method::MethodInfo};
 use super::super::class::classheap::ClassHeap;
 use super::super::gc::{gc, gc::GcType};
 use super::cfg::CFGMaker;
-use super::frame::{AType, Array, Frame, ObjectBody, Variable, VariableType};
+use super::frame::{AType, Array, Frame, ObjectBody, VariableType};
 use super::native_functions;
 use super::objectheap::ObjectHeap;
 use super::{jit, jit::JIT};

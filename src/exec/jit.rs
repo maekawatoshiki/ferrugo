@@ -1122,15 +1122,6 @@ impl JIT {
                         name_index,
                         descriptor_index
                     );
-                    let name = cur_class.classfile.constant_pool[name_index]
-                        .get_utf8()
-                        .unwrap();
-                    let descriptor = cur_class.classfile.constant_pool[descriptor_index]
-                        .get_utf8()
-                        .unwrap();
-                    let (_virtual_class, exec_method) =
-                        (&*class).get_method(name, descriptor).unwrap();
-
                     let jit_info_mgr = (&mut *class).get_jit_info_mgr(name_index, descriptor_index);
                     let jit_func = jit_info_mgr.get_jit_func();
                     let mut renv_need = false;
@@ -1139,6 +1130,12 @@ impl JIT {
                     {
                         self.cur_func.unwrap()
                     } else if let Some(native_func) = {
+                        let name = cur_class.classfile.constant_pool[name_index]
+                            .get_utf8()
+                            .unwrap();
+                        let descriptor = cur_class.classfile.constant_pool[descriptor_index]
+                            .get_utf8()
+                            .unwrap();
                         let signature = format!("{}.{}:{}", class_name, name, descriptor);
                         self.native_functions.get(signature.as_str())
                     } {

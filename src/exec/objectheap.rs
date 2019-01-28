@@ -1,7 +1,7 @@
 use super::super::class::{class::Class, classheap::ClassHeap};
 use super::super::exec::vm::load_class;
 use super::super::gc::{gc, gc::GcType};
-use super::frame::{AType, Array, ObjectBody, Variable};
+use super::frame::{AType, Array, ObjectBody};
 
 #[derive(Clone, Debug)]
 pub struct ObjectHeap {

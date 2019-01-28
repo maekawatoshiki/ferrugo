@@ -1,4 +1,4 @@
-use super::super::super::exec::frame::{ObjectBody, Variable};
+use super::super::super::exec::frame::ObjectBody;
 use super::super::super::gc::gc::GcType;
 
 #[derive(Debug, Clone)]

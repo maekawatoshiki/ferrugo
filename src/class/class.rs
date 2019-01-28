@@ -1,4 +1,4 @@
-use super::super::exec::frame::{ObjectBody, Variable, VariableType};
+use super::super::exec::frame::{ObjectBody, VariableType};
 use super::super::exec::jit::{FuncJITExecInfo, LoopJITExecInfo};
 use super::super::exec::objectheap::ObjectHeap;
 use super::super::gc::gc::GcType;
@@ -174,7 +174,6 @@ impl Class {
     pub fn get_numbered_field_info(&self, name: &str) -> Option<&(usize, VariableType)> {
         let mut class = self;
         loop {
-            println!("numbered fields {:?}", class.fields);
             if let Some(info) = class.fields.get(name) {
                 return Some(info);
             }
