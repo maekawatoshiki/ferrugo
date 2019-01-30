@@ -183,6 +183,7 @@ fn trace_ptr(ptr: *mut u64, m: &mut GcStateMap) {
 
     match info.ty {
         GcTargetType::Array => {
+            // TODO: FIX
             let ary = unsafe { &*(ptr as *mut Array) };
             ary.elements
                 .iter()

@@ -108,6 +108,8 @@ fn show_methods(filename: &str) {
 fn run_example() {
     run_file("examples/Hello.class");
     run_file("examples/MillerRabin.class");
+    run_file("examples/BigInt.class");
+    run_file("examples/EratosthenesSieve.class");
 }
 
 #[test]

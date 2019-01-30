@@ -103,7 +103,12 @@ impl Array {
     }
 
     pub fn store<T>(&mut self, index: isize, val: T) {
-        unsafe { ptr::write((self.elements.as_ptr()).offset(index) as *mut T, val) }
+        unsafe {
+            ptr::write(
+                (self.elements.as_ptr() as *mut T).offset(index) as *mut T,
+                val,
+            )
+        }
     }
 }
 
