@@ -42,22 +42,10 @@ impl ObjectHeap {
     }
 
     pub fn create_array(&mut self, atype: AType, size: usize) -> u64 {
-        let array = Array {
-            atype,
-            elements: { vec![0; size] },
-            string: None,
-        };
-
-        gc::new(array) as u64
+        gc::new(Array::new(atype, size, None)) as u64
     }
 
     pub fn create_obj_array(&mut self, class: GcType<Class>, size: usize) -> u64 {
-        let array = Array {
-            atype: AType::Class(class),
-            elements: { vec![0; size] },
-            string: None,
-        };
-
-        gc::new(array) as u64
+        gc::new(Array::new(AType::Class(class), size, None)) as u64
     }
 }

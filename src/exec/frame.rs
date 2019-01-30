@@ -1,6 +1,7 @@
 use super::super::class::class::Class;
 use super::super::class::classfile::method::MethodInfo;
 use super::super::gc::gc::GcType;
+use std::ptr;
 
 #[derive(Debug, Clone)]
 pub struct Frame {
@@ -70,18 +71,39 @@ pub enum AType {
 #[derive(Debug, Clone)]
 pub struct Array {
     pub atype: AType,
-    pub elements: Vec<u64>,
+    pub elements: Vec<u8>,
     // TODO: Treat as special. Need a better way.
     pub string: Option<String>,
 }
 
 impl Array {
+    pub fn new(atype: AType, len: usize, string: Option<String>) -> Array {
+        Array {
+            elements: unsafe {
+                let actual_len = len * atype.size_in_byte();
+                let mut vec: Vec<u8> = Vec::with_capacity(actual_len);
+                vec.set_len(actual_len);
+                vec
+            },
+            atype,
+            string,
+        }
+    }
+
     pub fn get_length(&self) -> usize {
         if let Some(ref string) = self.string {
             string.len()
         } else {
             self.elements.len()
         }
+    }
+
+    pub fn at<T: Into<u64>>(&self, index: isize) -> u64 {
+        unsafe { ptr::read((self.elements.as_ptr() as *const T).offset(index)).into() }
+    }
+
+    pub fn store<T>(&mut self, index: isize, val: T) {
+        unsafe { ptr::write((self.elements.as_ptr()).offset(index) as *mut T, val) }
     }
 }
 
@@ -112,6 +134,21 @@ impl AType {
             AType::Int => 10,
             AType::Long => 11,
             AType::Class(_) => panic!(),
+        }
+    }
+
+    pub fn size_in_byte(&self) -> usize {
+        match self {
+            AType::Boolean => 1,
+            AType::Char => 2,
+            AType::Float => 4,
+            AType::Double => 8,
+            AType::Byte => 1,
+            AType::Short => 2,
+            AType::Int => 4,
+            AType::Long => 8,
+            // TODO: This seems to be correct only on 64-bit platforms
+            AType::Class(_) => 8,
         }
     }
 }

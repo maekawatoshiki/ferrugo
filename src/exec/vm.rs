@@ -200,24 +200,31 @@ impl VM {
                     frame.sp += 2;
                     frame.pc += 1;
                 }
+                Inst::baload => {
+                    let arrayref = self.stack[self.bp + frame.sp - 2] as GcType<Array>;
+                    let index = self.stack[self.bp + frame.sp - 1] as isize;
+                    self.stack[self.bp + frame.sp - 2] = unsafe { &*arrayref }.at::<u8>(index);
+                    frame.sp -= 1;
+                    frame.pc += 1;
+                }
                 Inst::iaload => {
                     let arrayref = self.stack[self.bp + frame.sp - 2] as GcType<Array>;
-                    let index = self.stack[self.bp + frame.sp - 1] as usize;
-                    self.stack[self.bp + frame.sp - 2] = unsafe { &*arrayref }.elements[index];
+                    let index = self.stack[self.bp + frame.sp - 1] as isize;
+                    self.stack[self.bp + frame.sp - 2] = unsafe { &*arrayref }.at::<u32>(index);
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::aaload => {
                     let arrayref = self.stack[self.bp + frame.sp - 2] as GcType<Array>;
-                    let index = self.stack[self.bp + frame.sp - 1] as usize;
-                    self.stack[self.bp + frame.sp - 2] = unsafe { &*arrayref }.elements[index];
+                    let index = self.stack[self.bp + frame.sp - 1] as isize;
+                    self.stack[self.bp + frame.sp - 2] = unsafe { &*arrayref }.at::<u64>(index);
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
                 Inst::daload => {
                     let arrayref = self.stack[self.bp + frame.sp - 2] as GcType<Array>;
-                    let index = self.stack[self.bp + frame.sp - 1] as usize;
-                    self.stack[self.bp + frame.sp - 2] = unsafe { &*arrayref }.elements[index];
+                    let index = self.stack[self.bp + frame.sp - 1] as isize;
+                    self.stack[self.bp + frame.sp - 2] = unsafe { &*arrayref }.at::<u64>(index);
                     frame.pc += 1;
                 }
                 Inst::sipush => {
@@ -292,27 +299,35 @@ impl VM {
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
+                Inst::bastore => {
+                    let arrayref = self.stack[self.bp + frame.sp - 3] as GcType<Array>;
+                    let index = self.stack[self.bp + frame.sp - 2] as isize;
+                    let value = self.stack[self.bp + frame.sp - 1] as u8;
+                    unsafe { &mut *arrayref }.store(index, value);
+                    frame.sp -= 3;
+                    frame.pc += 1;
+                }
                 Inst::iastore => {
                     let arrayref = self.stack[self.bp + frame.sp - 3] as GcType<Array>;
-                    let index = self.stack[self.bp + frame.sp - 2] as usize;
-                    let value = self.stack[self.bp + frame.sp - 1].clone();
-                    unsafe { &mut *arrayref }.elements[index] = value;
+                    let index = self.stack[self.bp + frame.sp - 2] as isize;
+                    let value = self.stack[self.bp + frame.sp - 1] as u32;
+                    unsafe { &mut *arrayref }.store(index, value);
                     frame.sp -= 3;
                     frame.pc += 1;
                 }
                 Inst::aastore => {
                     let arrayref = self.stack[self.bp + frame.sp - 3] as GcType<Array>;
-                    let index = self.stack[self.bp + frame.sp - 2] as usize;
-                    let value = self.stack[self.bp + frame.sp - 1].clone();
-                    unsafe { &mut *arrayref }.elements[index] = value;
+                    let index = self.stack[self.bp + frame.sp - 2] as isize;
+                    let value = self.stack[self.bp + frame.sp - 1] as u64;
+                    unsafe { &mut *arrayref }.store(index, value);
                     frame.sp -= 3;
                     frame.pc += 1;
                 }
                 Inst::dastore => {
                     let arrayref = self.stack[self.bp + frame.sp - 4] as GcType<Array>;
-                    let index = self.stack[self.bp + frame.sp - 3] as usize;
-                    let value = self.stack[self.bp + frame.sp - 2];
-                    unsafe { &mut *arrayref }.elements[index] = value;
+                    let index = self.stack[self.bp + frame.sp - 3] as isize;
+                    let value = self.stack[self.bp + frame.sp - 2] as u64;
+                    unsafe { &mut *arrayref }.store(index, value);
                     frame.sp -= 4;
                     frame.pc += 1;
                 }
@@ -1567,6 +1582,7 @@ pub mod Inst {
     pub const iaload:       u8 = 46;
     pub const daload:       u8 = 49;
     pub const aaload:       u8 = 50;
+    pub const baload:       u8 = 51;
     pub const dstore:       u8 = 57;
     pub const astore:       u8 = 58;
     pub const dstore_0:     u8 = 71;
@@ -1580,6 +1596,7 @@ pub mod Inst {
     pub const iastore:      u8 = 79;
     pub const dastore:      u8 = 82;
     pub const aastore:      u8 = 83;
+    pub const bastore:      u8 = 84;
     pub const pop:          u8 = 87;
     pub const pop2:         u8 = 88;
     pub const dup:          u8 = 89;
@@ -1648,10 +1665,11 @@ pub mod Inst {
                 | dconst_1 | istore_0 | istore_1 | istore_2 | istore_3 | iload_0 | iload_1 | iload_2
                 | iload_3 | dload_0 | dload_1 | dload_2 | dload_3 | aload_0 | aload_1 | aload_2
                 | aload_3 | dstore_0 | dstore_1 | dstore_2 | dstore_3 | astore_0 | astore_1 | astore_2
-                | astore_3 | iaload | aaload | daload | iastore | aastore | dastore | iadd | isub | imul | irem | iand | idiv
+                | astore_3 | iaload | aaload | daload | baload | iastore | aastore | dastore | bastore
+                | iadd | isub | imul | irem | iand | idiv
                 | dadd | dsub | dmul | ddiv | dneg | i2d | i2s | pop | pop2 | dcmpl | dcmpg | dup
                 | ireturn | dreturn | areturn | return_ | monitorenter | aconst_null | arraylength 
-                | ishl | ishr | ixor | dup_x1 | d2i | dup2 | dup2_x1=> 1,
+                | ishl | ishr | ixor | dup_x1 | d2i | dup2 | dup2_x1 => 1,
             dstore | astore | istore | ldc | aload | dload | iload | bipush | newarray => 2,
             sipush | ldc2_w | iinc | invokestatic | invokespecial | invokevirtual | new | anewarray 
                 | goto | ifeq | iflt | ifne | ifle | ifge | if_icmpne | if_icmpge | if_icmpgt | if_icmpeq | if_acmpne | if_icmplt |
