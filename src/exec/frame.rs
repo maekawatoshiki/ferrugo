@@ -39,16 +39,6 @@ pub enum VariableType {
     Long,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum Variable {
-    Byte(i8),
-    Short(i16),
-    Int(i32),
-    Float(f32),
-    Double(f64),
-    Pointer(GcType<u64>),
-}
-
 #[derive(Debug, Clone)]
 pub struct ObjectBody {
     pub class: GcType<Class>,
@@ -94,7 +84,7 @@ impl Array {
         if let Some(ref string) = self.string {
             string.len()
         } else {
-            self.elements.len()
+            self.elements.len() / self.atype.size_in_byte()
         }
     }
 
@@ -103,12 +93,7 @@ impl Array {
     }
 
     pub fn store<T>(&mut self, index: isize, val: T) {
-        unsafe {
-            ptr::write(
-                (self.elements.as_ptr() as *mut T).offset(index) as *mut T,
-                val,
-            )
-        }
+        unsafe { ptr::write((self.elements.as_mut_ptr() as *mut T).offset(index), val) }
     }
 }
 
@@ -154,31 +139,6 @@ impl AType {
             AType::Long => 8,
             // TODO: This seems to be correct only on 64-bit platforms
             AType::Class(_) => 8,
-        }
-    }
-}
-
-impl Variable {
-    pub fn get_int(&self) -> i32 {
-        match self {
-            Variable::Byte(n) => *n as i32,
-            Variable::Short(n) => *n as i32,
-            Variable::Int(n) => *n,
-            _ => panic!("what?"),
-        }
-    }
-
-    pub fn get_double(&self) -> f64 {
-        match self {
-            Variable::Double(f) => *f,
-            _ => panic!("what?"),
-        }
-    }
-
-    pub fn get_pointer<T>(&self) -> GcType<T> {
-        match self {
-            Variable::Pointer(ptr) => *ptr as GcType<T>,
-            _ => panic!("hmm"),
         }
     }
 }

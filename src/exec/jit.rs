@@ -4,7 +4,7 @@ use super::{
         gc::gc::GcType,
     },
     cfg::{Block, BrKind},
-    frame::{Variable, VariableType},
+    frame::VariableType,
     native_functions,
     vm::{d2u, load_class, u2d, Inst, RuntimeEnvironment},
 };
@@ -1368,23 +1368,6 @@ impl BasicBlockInfo {
         match self {
             BasicBlockInfo::Positioned(_) => true,
             _ => false,
-        }
-    }
-}
-
-impl Variable {
-    pub unsafe fn to_llvm_val(&self, ctx: LLVMContextRef) -> LLVMValueRef {
-        match self {
-            Variable::Byte(c) => LLVMConstInt(LLVMInt16TypeInContext(ctx), *c as u64, 1),
-            Variable::Short(i) => LLVMConstInt(LLVMInt16TypeInContext(ctx), *i as u64, 1),
-            Variable::Int(i) => LLVMConstInt(LLVMInt32TypeInContext(ctx), *i as u64, 1),
-            Variable::Float(f) => LLVMConstReal(LLVMFloatTypeInContext(ctx), *f as f64),
-            Variable::Double(f) => LLVMConstReal(LLVMDoubleTypeInContext(ctx), *f),
-            Variable::Pointer(p) => {
-                let ptr_as_int = LLVMConstInt(LLVMInt64TypeInContext(ctx), *p as u64, 0);
-                let const_ptr = LLVMConstIntToPtr(ptr_as_int, VariableType::Pointer.to_llvmty(ctx));
-                const_ptr
-            }
         }
     }
 }
