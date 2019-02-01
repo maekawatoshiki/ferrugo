@@ -283,7 +283,7 @@ impl VM {
                 }
                 Inst::aload_0 | Inst::aload_1 | Inst::aload_2 | Inst::aload_3 => {
                     self.stack[self.bp + frame.sp] =
-                        self.stack[self.bp + cur_code as usize - Inst::aload_0 as usize].clone();
+                        self.stack[self.bp + cur_code as usize - Inst::aload_0 as usize];
                     frame.sp += 1;
                     frame.pc += 1;
                 }
@@ -828,6 +828,9 @@ impl VM {
         let objectheap = unsafe { &mut *self.objectheap };
 
         match signature.as_str() {
+            "java/io/PrintStream.println:(Ljava/lang/Object;)V" => {
+                println!("{}", self.stack[self.bp + 1]);
+            }
             "java/io/PrintStream.println:(I)V" => {
                 native_functions::java_io_printstream_println_i_v(
                     self.runtime_env,

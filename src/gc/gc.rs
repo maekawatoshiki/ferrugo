@@ -2,7 +2,7 @@
 
 use super::super::class::{class::Class, classfile::constant::Constant, classheap::ClassHeap};
 use super::super::exec::{
-    frame::{Array, Frame, ObjectBody},
+    frame::{AType, Array, Frame, ObjectBody},
     vm::{RuntimeEnvironment, VM},
 };
 use rustc_hash::FxHashMap;
@@ -185,9 +185,15 @@ fn trace_ptr(ptr: *mut u64, m: &mut GcStateMap) {
         GcTargetType::Array => {
             // TODO: FIX
             let ary = unsafe { &*(ptr as *mut Array) };
-            ary.elements
-                .iter()
-                .for_each(|v| trace_ptr(*v as *mut u64, m));
+            match ary.atype {
+                AType::Class(_) => {
+                    let len = ary.get_length();
+                    for i in 0..len {
+                        trace_ptr(ary.at::<u64>(i as isize) as *mut u64, m);
+                    }
+                }
+                _ => {}
+            }
         }
         GcTargetType::Object => {
             let obj = unsafe { &*(ptr as *mut ObjectBody) };

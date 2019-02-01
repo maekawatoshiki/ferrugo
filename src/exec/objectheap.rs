@@ -29,14 +29,7 @@ impl ObjectHeap {
 
         unsafe { &mut *(object as GcType<ObjectBody>) }
             .variables
-            .insert(
-                0,
-                gc::new(Array {
-                    atype: AType::Char,
-                    elements: vec![],
-                    string: Some(string),
-                }) as u64,
-            );
+            .insert(0, gc::new(Array::new(AType::Char, 0, Some(string))) as u64);
 
         object
     }
