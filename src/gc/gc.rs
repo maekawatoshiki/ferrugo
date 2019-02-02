@@ -63,6 +63,90 @@ impl GcTargetInfo {
     }
 }
 
+pub struct GC {
+    allocated_memory: GcStateMap,
+    allocated_memory_size_in_byte: usize,
+    gc_disabled: bool,
+}
+
+impl GC {
+    pub fn new() -> GC {
+        GC {
+            allocated_memory: GcStateMap::default(),
+            allocated_memory_size_in_byte: 0,
+            gc_disabled: false,
+        }
+    }
+
+    pub fn alloc<T>(&mut self, val: T) -> GcType<T> {
+        let size = mem::size_of_val(&val);
+        let ptr = Box::into_raw(Box::new(val));
+        let info = GcTargetInfo::new_unmarked(unsafe { std::intrinsics::type_name::<T>() });
+        self.allocated_memory_size_in_byte += size;
+        self.allocated_memory.insert(ptr as *mut u64, info);
+        ptr
+    }
+
+    pub fn mark_and_sweep(&mut self, vm: &VM) {
+        if self.gc_disabled {
+            return;
+        }
+
+        let over10mib_allocated = self.allocated_memory_size_in_byte > 10 * 1024 * 1024;
+        if over10mib_allocated {
+            return;
+        }
+
+        let mut m = GcStateMap::default();
+        self.trace(&vm, &mut m);
+        self.free(&m);
+    }
+
+    fn trace(&self, vm: &VM, m: &mut GcStateMap) {
+        trace_ptr(vm.runtime_env as *mut u64, m);
+        trace_ptr(vm.classheap as *mut u64, m);
+        trace_ptr(vm.objectheap as *mut u64, m);
+
+        // trace frame stack
+        for frame in &vm.frame_stack {
+            frame.trace(m);
+        }
+
+        // trace variable stack
+        for val in &vm.stack {
+            trace_ptr(*val as *mut u64, m);
+        }
+    }
+
+    fn free(&mut self, m: &GcStateMap) {
+        let mut total_released_size = 0;
+
+        self.allocated_memory.retain(|p, info| {
+            let is_marked = m
+                .get(p)
+                .and_then(|info| Some(info.state == GcState::Marked))
+                .unwrap_or(false);
+            if !is_marked {
+                let released_size = free_ptr(*p, info);
+                total_released_size += released_size;
+            }
+            is_marked
+        });
+
+        if self.allocated_memory_size_in_byte as isize - total_released_size as isize >= 0 {
+            self.allocated_memory_size_in_byte -= total_released_size;
+        }
+    }
+
+    pub fn enable(&mut self) {
+        self.gc_disabled = false;
+    }
+
+    pub fn disable(&mut self) {
+        self.gc_disabled = true;
+    }
+}
+
 pub fn new<T>(val: T) -> GcType<T> {
     let size = mem::size_of_val(&val);
     let ptr = Box::into_raw(Box::new(val));

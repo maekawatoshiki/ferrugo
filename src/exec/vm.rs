@@ -1466,8 +1466,6 @@ impl VM {
     }
 
     pub fn load_class_by_file_name(&mut self, file_name: &str) -> GcType<Class> {
-        gc::disable();
-
         let class_ptr = gc::new(Class::new());
 
         unsafe { (*class_ptr).classheap = Some(self.classheap) };
@@ -1509,8 +1507,6 @@ impl VM {
             self.run();
             self.frame_stack.pop();
         }
-
-        gc::enable();
 
         self.bp = save_bp;
 
