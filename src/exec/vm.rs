@@ -1119,8 +1119,9 @@ impl VM {
     }
 
     fn run_get_static(&mut self) {
+        let frame_stack_len = self.frame_stack.len();
         let (frame_class, index) = {
-            let frame = self.frame_stack.last().unwrap();
+            let frame = &self.frame_stack[frame_stack_len - 1];
             (
                 unsafe { &*frame.class.unwrap() },
                 frame
@@ -1162,15 +1163,16 @@ impl VM {
             .get_static_variable(name.as_str())
             .unwrap();
 
-        let frame = self.frame_stack.last_mut().unwrap();
+        let frame = &mut self.frame_stack[frame_stack_len - 1];
         self.stack[self.bp + frame.sp] = object;
         frame.pc += 3;
         frame.sp += 1;
     }
 
     fn run_put_static(&mut self) {
+        let frame_stack_len = self.frame_stack.len();
         let (frame_class, index) = {
-            let frame = self.frame_stack.last().unwrap();
+            let frame = &self.frame_stack[frame_stack_len - 1];
             (
                 unsafe { &*frame.class.unwrap() },
                 frame
@@ -1208,7 +1210,7 @@ impl VM {
 
         // TODO: ``descriptor`` will be necessary to verify the field's type.
 
-        let frame = self.frame_stack.last_mut().unwrap();
+        let frame = &mut self.frame_stack[frame_stack_len - 1];
         let val = self.stack[self.bp + frame.sp - 1].clone();
         frame.sp -= 1;
         frame.pc += 3;
@@ -1395,8 +1397,9 @@ impl VM {
     }
 
     fn run_new_obj_array(&mut self) {
+        let frame_stack_len = self.frame_stack.len();
         let (frame_class, class_index) = {
-            let frame = self.frame_stack.last().unwrap();
+            let frame = &self.frame_stack[frame_stack_len - 1];
             let frame_class = unsafe { &*frame.class.unwrap() };
             let class_index = {
                 let code = unsafe { &*frame.method_info.code.as_ref().unwrap().code };
@@ -1415,7 +1418,7 @@ impl VM {
             .unwrap();
         let class = self.load_class(class_name);
 
-        let frame = self.frame_stack.last_mut().unwrap();
+        let frame = &mut self.frame_stack[frame_stack_len - 1];
         let size = self.stack[self.bp + frame.sp - 1] as usize;
         self.stack[self.bp + frame.sp - 1] =
             unsafe { &mut *self.objectheap }.create_obj_array(class, size);
@@ -1425,8 +1428,9 @@ impl VM {
     }
 
     fn run_new(&mut self) {
+        let frame_stack_len = self.frame_stack.len();
         let (frame_class, class_index) = {
-            let frame = self.frame_stack.last().unwrap();
+            let frame = &self.frame_stack[frame_stack_len - 1];
             let frame_class = unsafe { &*frame.class.unwrap() };
             let class_index = {
                 let code = unsafe { &*frame.method_info.code.as_ref().unwrap().code };
@@ -1446,7 +1450,7 @@ impl VM {
         let class = self.load_class(class_name);
         let object = unsafe { &mut *self.objectheap }.create_object(class);
 
-        let frame = self.frame_stack.last_mut().unwrap();
+        let frame = &mut self.frame_stack[frame_stack_len - 1];
         self.stack[self.bp + frame.sp] = object;
         frame.pc += 3;
         frame.sp += 1;
