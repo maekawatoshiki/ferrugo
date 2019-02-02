@@ -1,5 +1,4 @@
 use super::super::class::{class::Class, classheap::ClassHeap};
-use super::super::exec::vm::load_class;
 use super::super::gc::{gc, gc::GcType};
 use super::frame::{AType, Array, ObjectBody};
 
@@ -24,7 +23,9 @@ impl ObjectHeap {
     }
 
     pub fn create_string_object(&mut self, string: String, classheap: GcType<ClassHeap>) -> u64 {
-        let class = load_class(classheap, self, "java/lang/String");
+        let class = unsafe { &*classheap }
+            .get_class("java/lang/String")
+            .unwrap();
         let object = self.create_object(class);
 
         unsafe { &mut *(object as GcType<ObjectBody>) }

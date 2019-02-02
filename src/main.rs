@@ -1,8 +1,8 @@
 #[macro_use]
 extern crate ferrugo;
-use ferrugo::class::classheap;
+use ferrugo::class::{class::Class, classheap};
 use ferrugo::exec::objectheap::ObjectHeap;
-use ferrugo::exec::vm::{load_class_with_filename, VM};
+use ferrugo::exec::vm::VM;
 use ferrugo::gc::gc;
 
 extern crate clap;
@@ -53,7 +53,10 @@ fn run_file(filename: &str) {
     let objectheap_ptr = gc::new(ObjectHeap::new());
     let objectheap = unsafe { &mut *objectheap_ptr };
 
-    let class_ptr = load_class_with_filename(classheap_ptr, objectheap_ptr, filename);
+    let mut vm = VM::new(classheap, objectheap);
+    vm.load_class("java/lang/String");
+
+    let class_ptr = vm.load_class_by_file_name(filename);
 
     let (class, method) = expect!(
         unsafe { &*class_ptr }.get_method("main", "([Ljava/lang/String;)V"),
@@ -62,7 +65,6 @@ fn run_file(filename: &str) {
 
     let object = objectheap.create_object(class_ptr);
 
-    let mut vm = VM::new(classheap, objectheap);
     vm.stack[0] = object;
     vm.frame_stack[0].class = Some(class);
     vm.frame_stack[0].method_info = method;
@@ -82,10 +84,9 @@ fn run_file(filename: &str) {
 
 fn show_methods(filename: &str) {
     let classheap_ptr = gc::new(classheap::ClassHeap::new());
-    let objectheap_ptr = gc::new(ObjectHeap::new());
-
-    let class_ptr = load_class_with_filename(classheap_ptr, objectheap_ptr, filename);
-    let class = unsafe { &*class_ptr };
+    let mut class = Class::new();
+    class.classheap = Some(classheap_ptr);
+    class.load_classfile(filename);
 
     for i in 0..class.classfile.methods_count as usize {
         let method = &class.classfile.methods[i];

@@ -1456,7 +1456,7 @@ impl VM {
 }
 
 impl VM {
-    fn load_class(&mut self, class_name: &str) -> GcType<Class> {
+    pub fn load_class(&mut self, class_name: &str) -> GcType<Class> {
         if let Some(class) = unsafe { &*self.classheap }.get_class(class_name) {
             return class;
         }
@@ -1465,7 +1465,7 @@ impl VM {
         self.load_class_by_file_name(filename.as_str())
     }
 
-    fn load_class_by_file_name(&mut self, file_name: &str) -> GcType<Class> {
+    pub fn load_class_by_file_name(&mut self, file_name: &str) -> GcType<Class> {
         gc::disable();
 
         let class_ptr = gc::new(Class::new());
@@ -1537,70 +1537,6 @@ fn count_params(descriptor: &str) -> usize {
         i += 1;
     }
     count
-}
-
-pub fn load_class_with_filename(
-    classheap: GcType<ClassHeap>,
-    objectheap: GcType<ObjectHeap>,
-    filename: &str,
-) -> GcType<Class> {
-    gc::disable();
-
-    let class_ptr = gc::new(Class::new());
-
-    unsafe { (*class_ptr).classheap = Some(classheap) };
-
-    expect!(
-        unsafe { &mut *classheap }.load_class(filename, class_ptr),
-        format!("Couldn't load file '{}'", filename)
-    );
-
-    let mut vm = VM::new(classheap, objectheap);
-    let object = unsafe { &mut *objectheap }.create_object(class_ptr);
-    vm.stack[0] = object;
-    if let Some((class, method)) = unsafe { &*class_ptr }.get_method("<init>", "()V") {
-        vm.frame_stack[0].class = Some(class);
-        vm.frame_stack[0].method_info = method;
-        vm.frame_stack[0].sp = vm.frame_stack[0]
-            .method_info
-            .code
-            .as_ref()
-            .unwrap()
-            .max_locals as usize;
-        vm.run();
-    }
-
-    // Initialization with ``static { ... }``
-    if let Some((class, method)) = unsafe { &*class_ptr }.get_method("<clinit>", "()V") {
-        vm.bp = 0;
-        vm.frame_stack[0].pc = 0;
-        vm.frame_stack[0].class = Some(class);
-        vm.frame_stack[0].method_info = method;
-        vm.frame_stack[0].sp = vm.frame_stack[0]
-            .method_info
-            .code
-            .as_ref()
-            .unwrap()
-            .max_locals as usize;
-        vm.run();
-    }
-
-    gc::enable();
-
-    class_ptr
-}
-
-pub fn load_class(
-    classheap: GcType<ClassHeap>,
-    objectheap: GcType<ObjectHeap>,
-    class_name: &str,
-) -> GcType<Class> {
-    if let Some(class) = unsafe { &*classheap }.get_class(class_name) {
-        return class;
-    }
-
-    let filename = format!("./examples/{}.class", class_name);
-    load_class_with_filename(classheap, objectheap, filename.as_str())
 }
 
 #[inline]

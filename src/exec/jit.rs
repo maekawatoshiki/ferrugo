@@ -6,7 +6,7 @@ use super::{
     cfg::{Block, BrKind},
     frame::VariableType,
     native_functions,
-    vm::{d2u, load_class, u2d, Inst, RuntimeEnvironment},
+    vm::{d2u, u2d, Inst, RuntimeEnvironment},
 };
 use libc;
 use llvm;
@@ -1024,11 +1024,9 @@ impl JIT {
                     let class_name = cur_class.classfile.constant_pool[name_index as usize]
                         .get_utf8()
                         .unwrap();
-                    let class = load_class(
-                        cur_class.classheap.unwrap(),
-                        (&mut *self.runtime_env).objectheap,
-                        class_name,
-                    );
+                    let class = (&*cur_class.classheap.unwrap())
+                        .get_class(class_name)
+                        .unwrap();
                     let name_index = fld!(
                         Constant::NameAndTypeInfo,
                         &cur_class.classfile.constant_pool[name_and_type_index],
@@ -1052,8 +1050,7 @@ impl JIT {
                         .get_utf8()
                         .unwrap();
                     let classheap = (&mut *self.runtime_env).classheap;
-                    let objectheap = (&mut *self.runtime_env).objectheap;
-                    let class = load_class(classheap, objectheap, class_name);
+                    let class = (&*classheap).get_class(class_name).unwrap();
                     let ret = LLVMBuildCall(
                         self.builder,
                         *self.native_functions.get("ferrugo_internal_new").unwrap(),
@@ -1111,11 +1108,9 @@ impl JIT {
                     let class_name = cur_class.classfile.constant_pool[name_index as usize]
                         .get_utf8()
                         .unwrap();
-                    let class = load_class(
-                        cur_class.classheap.unwrap(),
-                        (&mut *self.runtime_env).objectheap,
-                        class_name,
-                    );
+                    let class = (&*cur_class.classheap.unwrap())
+                        .get_class(class_name)
+                        .unwrap();
                     let (name_index, descriptor_index) = fld!(
                         Constant::NameAndTypeInfo,
                         &cur_class.classfile.constant_pool[name_and_type_index],
