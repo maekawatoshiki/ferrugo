@@ -20,6 +20,18 @@ macro_rules! fld { ($a:path, $b:expr, $( $arg:ident ),*) => {{
     }
 }}; }
 
+macro_rules! expect {
+    ($expr:expr, $msg:expr) => {{
+        match $expr {
+            Some(some) => some,
+            None => {
+                eprintln!("{}: {}", Colour::Red.bold().paint("error"), $msg);
+                ::std::process::exit(-1);
+            }
+        }
+    }};
+}
+
 #[derive(Debug, Clone)]
 pub struct RuntimeEnvironment {
     pub classheap: GcType<ClassHeap>,
@@ -1107,18 +1119,18 @@ impl VM {
     }
 
     fn run_get_static(&mut self) {
-        #[rustfmt::skip]
-        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
-
-        let frame = frame!();
-        let frame_class = unsafe { &*frame.class.unwrap() };
-        let index = frame
-            .method_info
-            .code
-            .as_ref()
-            .unwrap()
-            .read_u16_from_code(frame.pc + 1);
-        frame.pc += 3;
+        let (frame_class, index) = {
+            let frame = self.frame_stack.last().unwrap();
+            (
+                unsafe { &*frame.class.unwrap() },
+                frame
+                    .method_info
+                    .code
+                    .as_ref()
+                    .unwrap()
+                    .read_u16_from_code(frame.pc + 1),
+            )
+        };
 
         let (class_index, name_and_type_index) = fld!(
             Constant::FieldrefInfo,
@@ -1134,7 +1146,7 @@ impl VM {
         let class_name = frame_class.classfile.constant_pool[name_index as usize]
             .get_utf8()
             .unwrap();
-        let class = load_class(self.classheap, self.objectheap, class_name);
+        let class = self.load_class(class_name);
         let name_index = fld!(
             Constant::NameAndTypeInfo,
             &frame_class.classfile.constant_pool[name_and_type_index],
@@ -1150,23 +1162,25 @@ impl VM {
             .get_static_variable(name.as_str())
             .unwrap();
 
+        let frame = self.frame_stack.last_mut().unwrap();
         self.stack[self.bp + frame.sp] = object;
+        frame.pc += 3;
         frame.sp += 1;
     }
 
     fn run_put_static(&mut self) {
-        #[rustfmt::skip]
-        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
-
-        let frame = frame!();
-        let frame_class = unsafe { &*frame.class.unwrap() };
-        let index = frame
-            .method_info
-            .code
-            .as_ref()
-            .unwrap()
-            .read_u16_from_code(frame.pc + 1);
-        frame.pc += 3;
+        let (frame_class, index) = {
+            let frame = self.frame_stack.last().unwrap();
+            (
+                unsafe { &*frame.class.unwrap() },
+                frame
+                    .method_info
+                    .code
+                    .as_ref()
+                    .unwrap()
+                    .read_u16_from_code(frame.pc + 1),
+            )
+        };
 
         let (class_index, name_and_type_index) = fld!(
             Constant::FieldrefInfo,
@@ -1182,7 +1196,7 @@ impl VM {
         let class_name = frame_class.classfile.constant_pool[name_index as usize]
             .get_utf8()
             .unwrap();
-        let class = load_class(self.classheap, self.objectheap, class_name);
+        let class = self.load_class(class_name);
         let name_index = fld!(
             Constant::NameAndTypeInfo,
             &frame_class.classfile.constant_pool[name_and_type_index],
@@ -1194,8 +1208,10 @@ impl VM {
 
         // TODO: ``descriptor`` will be necessary to verify the field's type.
 
+        let frame = self.frame_stack.last_mut().unwrap();
         let val = self.stack[self.bp + frame.sp - 1].clone();
         frame.sp -= 1;
+        frame.pc += 3;
 
         unsafe { &mut *class }.put_static_variable(name.as_str(), val)
     }
@@ -1230,7 +1246,7 @@ impl VM {
         let class_name = frame_class.classfile.constant_pool[name_index as usize]
             .get_utf8()
             .unwrap();
-        let class = load_class(self.classheap, self.objectheap, class_name);
+        let class = self.load_class(class_name);
         let (name_index, descriptor_index) = fld!(
             Constant::NameAndTypeInfo,
             &frame_class.classfile.constant_pool[name_and_type_index],
@@ -1379,15 +1395,15 @@ impl VM {
     }
 
     fn run_new_obj_array(&mut self) {
-        let frame = self.frame_stack.last_mut().unwrap();
-        let frame_class = unsafe { &*frame.class.unwrap() };
-        let class_index = frame
-            .method_info
-            .code
-            .as_ref()
-            .unwrap()
-            .read_u16_from_code(frame.pc + 1);
-        frame.pc += 3;
+        let (frame_class, class_index) = {
+            let frame = self.frame_stack.last().unwrap();
+            let frame_class = unsafe { &*frame.class.unwrap() };
+            let class_index = {
+                let code = unsafe { &*frame.method_info.code.as_ref().unwrap().code };
+                ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
+            };
+            (frame_class, class_index)
+        };
 
         let name_index = fld!(
             Constant::ClassInfo,
@@ -1397,26 +1413,27 @@ impl VM {
         let class_name = frame_class.classfile.constant_pool[name_index]
             .get_utf8()
             .unwrap();
-        let class = load_class(self.classheap, self.objectheap, class_name);
+        let class = self.load_class(class_name);
 
+        let frame = self.frame_stack.last_mut().unwrap();
         let size = self.stack[self.bp + frame.sp - 1] as usize;
         self.stack[self.bp + frame.sp - 1] =
             unsafe { &mut *self.objectheap }.create_obj_array(class, size);
+        frame.pc += 3;
 
         gc::mark_and_sweep(self);
     }
 
     fn run_new(&mut self) {
-        #[rustfmt::skip]
-        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
-
-        let frame = frame!();
-        let frame_class = unsafe { &*frame.class.unwrap() };
-        let class_index = {
-            let code = unsafe { &*frame.method_info.code.as_ref().unwrap().code };
-            ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
+        let (frame_class, class_index) = {
+            let frame = self.frame_stack.last().unwrap();
+            let frame_class = unsafe { &*frame.class.unwrap() };
+            let class_index = {
+                let code = unsafe { &*frame.method_info.code.as_ref().unwrap().code };
+                ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize
+            };
+            (frame_class, class_index)
         };
-        frame.pc += 3;
 
         let name_index = fld!(
             Constant::ClassInfo,
@@ -1426,13 +1443,78 @@ impl VM {
         let class_name = frame_class.classfile.constant_pool[name_index as usize]
             .get_utf8()
             .unwrap();
-        let class = load_class(self.classheap, self.objectheap, class_name);
+        let class = self.load_class(class_name);
         let object = unsafe { &mut *self.objectheap }.create_object(class);
 
+        let frame = self.frame_stack.last_mut().unwrap();
         self.stack[self.bp + frame.sp] = object;
+        frame.pc += 3;
         frame.sp += 1;
 
         gc::mark_and_sweep(self);
+    }
+}
+
+impl VM {
+    fn load_class(&mut self, class_name: &str) -> GcType<Class> {
+        if let Some(class) = unsafe { &*self.classheap }.get_class(class_name) {
+            return class;
+        }
+
+        let filename = format!("./examples/{}.class", class_name);
+        self.load_class_by_file_name(filename.as_str())
+    }
+
+    fn load_class_by_file_name(&mut self, file_name: &str) -> GcType<Class> {
+        gc::disable();
+
+        let class_ptr = gc::new(Class::new());
+
+        unsafe { (*class_ptr).classheap = Some(self.classheap) };
+
+        expect!(
+            unsafe { &mut *self.classheap }.load_class(file_name, class_ptr),
+            format!("Could not load class file '{}'", file_name)
+        );
+
+        let object = unsafe { &mut *self.objectheap }.create_object(class_ptr);
+
+        let cur_sp = self.frame_stack.last().unwrap().sp;
+        let save_bp = self.bp;
+
+        self.bp = save_bp + cur_sp;
+        self.stack[self.bp] = object;
+
+        // TODO: Support initializer whose descriptor is not '()V'
+        if let Some((class, method)) = unsafe { &*class_ptr }.get_method("<init>", "()V") {
+            let mut frame = Frame::new();
+            frame.class = Some(class);
+            frame.method_info = method;
+            frame.sp = frame.method_info.code.as_ref().unwrap().max_locals as usize;
+
+            self.frame_stack.push(frame);
+            self.bp = save_bp + cur_sp;
+            self.run();
+            self.frame_stack.pop();
+        }
+
+        // Initialization with ``static { ... }``
+        if let Some((class, method)) = unsafe { &*class_ptr }.get_method("<clinit>", "()V") {
+            let mut frame = Frame::new();
+            frame.class = Some(class);
+            frame.method_info = method;
+            frame.sp = frame.method_info.code.as_ref().unwrap().max_locals as usize;
+            self.frame_stack.push(frame);
+            self.bp = save_bp + cur_sp;
+            self.run();
+            self.frame_stack.pop();
+        }
+
+        gc::enable();
+
+        self.bp = save_bp;
+
+        class_ptr
     }
 }
 
@@ -1455,18 +1537,6 @@ fn count_params(descriptor: &str) -> usize {
         i += 1;
     }
     count
-}
-
-macro_rules! expect {
-    ($expr:expr, $msg:expr) => {{
-        match $expr {
-            Some(some) => some,
-            None => {
-                eprintln!("{}: {}", Colour::Red.bold().paint("error"), $msg);
-                ::std::process::exit(-1);
-            }
-        }
-    }};
 }
 
 pub fn load_class_with_filename(
