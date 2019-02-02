@@ -6,20 +6,9 @@ use super::super::exec::{
     vm::{RuntimeEnvironment, VM},
 };
 use rustc_hash::FxHashMap;
-use std::{
-    cell::RefCell,
-    mem,
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
-};
+use std::mem;
 
 pub type GcType<T> = *mut T;
-
-static ALLOCATED_MEM_SIZE_BYTE: AtomicUsize = AtomicUsize::new(0);
-static GC_DISABLED: AtomicBool = AtomicBool::new(false);
-
-thread_local!(static GC_MEM: RefCell<GcStateMap> = {
-    RefCell::new(FxHashMap::default())
-});
 
 type GcStateMap = FxHashMap<*mut u64, GcTargetInfo>;
 
@@ -63,6 +52,7 @@ impl GcTargetInfo {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct GC {
     allocated_memory: GcStateMap,
     allocated_memory_size_in_byte: usize,
@@ -93,7 +83,7 @@ impl GC {
         }
 
         let over10mib_allocated = self.allocated_memory_size_in_byte > 10 * 1024 * 1024;
-        if over10mib_allocated {
+        if !over10mib_allocated {
             return;
         }
 
@@ -102,19 +92,19 @@ impl GC {
         self.free(&m);
     }
 
-    fn trace(&self, vm: &VM, m: &mut GcStateMap) {
-        trace_ptr(vm.runtime_env as *mut u64, m);
-        trace_ptr(vm.classheap as *mut u64, m);
-        trace_ptr(vm.objectheap as *mut u64, m);
+    fn trace(&mut self, vm: &VM, m: &mut GcStateMap) {
+        trace_ptr(&mut self.allocated_memory, m, vm.runtime_env as *mut u64);
+        trace_ptr(&mut self.allocated_memory, m, vm.classheap as *mut u64);
+        trace_ptr(&mut self.allocated_memory, m, vm.objectheap as *mut u64);
 
         // trace frame stack
         for frame in &vm.frame_stack {
-            frame.trace(m);
+            frame.trace(&mut self.allocated_memory, m);
         }
 
         // trace variable stack
         for val in &vm.stack {
-            trace_ptr(*val as *mut u64, m);
+            trace_ptr(&mut self.allocated_memory, m, *val as *mut u64);
         }
     }
 
@@ -147,96 +137,24 @@ impl GC {
     }
 }
 
-pub fn new<T>(val: T) -> GcType<T> {
-    let size = mem::size_of_val(&val);
-    let ptr = Box::into_raw(Box::new(val));
-    let info = GcTargetInfo::new_unmarked(unsafe { std::intrinsics::type_name::<T>() });
-    ALLOCATED_MEM_SIZE_BYTE.fetch_add(size, Ordering::Relaxed);
-    GC_MEM.with(|m| {
-        m.borrow_mut().insert(ptr as *mut u64, info);
-    });
-    ptr
-}
-
-pub fn enable() {
-    GC_DISABLED.store(false, Ordering::Relaxed);
-}
-
-pub fn disable() {
-    GC_DISABLED.store(true, Ordering::Relaxed);
-}
-
-pub fn mark_and_sweep(vm: &VM) {
-    if GC_DISABLED.load(Ordering::Relaxed) {
-        return;
-    }
-
-    fn over10mb_allocated() -> bool {
-        ALLOCATED_MEM_SIZE_BYTE.load(Ordering::Relaxed) > 10 * 1024 * 1024
-    }
-
-    if !over10mb_allocated() {
-        return;
-    }
-
-    let mut m = GcStateMap::default();
-    trace(&vm, &mut m);
-    free(&m);
-}
-
-fn trace(vm: &VM, m: &mut GcStateMap) {
-    trace_ptr(vm.runtime_env as *mut u64, m);
-    trace_ptr(vm.classheap as *mut u64, m);
-    trace_ptr(vm.objectheap as *mut u64, m);
-
-    // trace frame stack
-    for frame in &vm.frame_stack {
-        frame.trace(m);
-    }
-
-    // trace variable stack
-    for val in &vm.stack {
-        trace_ptr(*val as *mut u64, m);
-    }
-}
-
-fn free(m: &GcStateMap) {
-    GC_MEM.with(|mem| {
-        mem.borrow_mut().retain(|p, info| {
-            let is_marked = m
-                .get(p)
-                .and_then(|info| Some(info.state == GcState::Marked))
-                .unwrap_or(false);
-            if !is_marked {
-                let released_size = free_ptr(*p, info);
-                if ALLOCATED_MEM_SIZE_BYTE.load(Ordering::Relaxed) as isize - released_size as isize
-                    > 0
-                {
-                    // println!("mem {}", ALLOCATED_MEM_SIZE_BYTE.load(Ordering::Relaxed));
-                    ALLOCATED_MEM_SIZE_BYTE.fetch_sub(released_size, Ordering::Relaxed);
-                }
-            }
-            is_marked
-        });
-    });
-}
-
 impl Frame {
-    fn trace(&self, m: &mut GcStateMap) {
-        trace_ptr(self.class.unwrap() as *mut u64, m);
+    fn trace(&self, allocated: &mut GcStateMap, m: &mut GcStateMap) {
+        if let Some(class) = self.class {
+            trace_ptr(allocated, m, class as *mut u64);
+        }
     }
 }
 
 impl Class {
-    fn trace(&self, m: &mut GcStateMap) {
+    fn trace(&self, allocated: &mut GcStateMap, traced: &mut GcStateMap) {
         self.static_variables
             .iter()
-            .for_each(|(_, v)| trace_ptr(*v as *mut u64, m));
+            .for_each(|(_, v)| trace_ptr(allocated, traced, *v as *mut u64));
         for constant in &self.classfile.constant_pool {
             match constant {
                 Constant::Utf8 { java_string, .. } => {
                     if let Some(java_string) = java_string {
-                        trace_ptr(*java_string as *mut u64, m);
+                        trace_ptr(allocated, traced, *java_string as *mut u64);
                     }
                 }
                 _ => {}
@@ -245,7 +163,7 @@ impl Class {
     }
 }
 
-fn trace_ptr(ptr: *mut u64, m: &mut GcStateMap) {
+fn trace_ptr(allocated: &mut GcStateMap, m: &mut GcStateMap, ptr: *mut u64) {
     if ptr == 0 as *mut u64 {
         return;
     }
@@ -254,7 +172,7 @@ fn trace_ptr(ptr: *mut u64, m: &mut GcStateMap) {
         return;
     }
 
-    let mut info = if let Some(info) = GC_MEM.with(|m| m.borrow().get(&ptr).map(|x| *x)) {
+    let mut info = if let Some(info) = allocated.get(&ptr).map(|x| *x) {
         info
     } else {
         return;
@@ -273,7 +191,7 @@ fn trace_ptr(ptr: *mut u64, m: &mut GcStateMap) {
                 AType::Class(_) => {
                     let len = ary.get_length();
                     for i in 0..len {
-                        trace_ptr(ary.at::<u64>(i as isize) as *mut u64, m);
+                        trace_ptr(allocated, m, ary.at::<u64>(i as isize) as *mut u64);
                     }
                 }
                 _ => {}
@@ -281,26 +199,26 @@ fn trace_ptr(ptr: *mut u64, m: &mut GcStateMap) {
         }
         GcTargetType::Object => {
             let obj = unsafe { &*(ptr as *mut ObjectBody) };
-            unsafe { &*obj.class }.trace(m);
+            unsafe { &*obj.class }.trace(allocated, m);
             obj.variables
                 .iter()
-                .for_each(|v| trace_ptr(*v as *mut u64, m));
+                .for_each(|v| trace_ptr(allocated, m, *v as *mut u64));
         }
         GcTargetType::Class => {
             let class = unsafe { &*(ptr as *mut Class) };
-            class.trace(m);
+            class.trace(allocated, m);
         }
         GcTargetType::ClassHeap => {
             let classheap = unsafe { &*(ptr as *mut ClassHeap) };
             for (_, class_ptr) in &classheap.class_map {
-                trace_ptr(*class_ptr as *mut u64, m);
+                trace_ptr(allocated, m, *class_ptr as *mut u64);
             }
         }
         GcTargetType::ObjectHeap => {}
         GcTargetType::RuntimeEnvironment => {
             let renv = unsafe { &*(ptr as *mut RuntimeEnvironment) };
-            trace_ptr(renv.classheap as *mut u64, m);
-            trace_ptr(renv.objectheap as *mut u64, m);
+            trace_ptr(allocated, m, renv.classheap as *mut u64);
+            trace_ptr(allocated, m, renv.objectheap as *mut u64);
         }
         GcTargetType::Unknown => panic!(),
     };

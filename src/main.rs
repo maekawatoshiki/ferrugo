@@ -3,7 +3,6 @@ extern crate ferrugo;
 use ferrugo::class::{class::Class, classheap};
 use ferrugo::exec::objectheap::ObjectHeap;
 use ferrugo::exec::vm::VM;
-use ferrugo::gc::gc;
 
 extern crate clap;
 use clap::{App, Arg};
@@ -47,11 +46,11 @@ fn run_file(filename: &str) {
         None => { eprintln!("{}: {}", Colour::Red.bold().paint("error"), $msg); return }
     } }}; }
 
-    let classheap_ptr = gc::new(classheap::ClassHeap::new());
-    let classheap = unsafe { &mut *classheap_ptr };
-
-    let objectheap_ptr = gc::new(ObjectHeap::new());
+    let objectheap_ptr = Box::into_raw(Box::new(ObjectHeap::new()));
     let objectheap = unsafe { &mut *objectheap_ptr };
+
+    let classheap_ptr = objectheap.gc.alloc(classheap::ClassHeap::new());
+    let classheap = unsafe { &mut *classheap_ptr };
 
     let mut vm = VM::new(classheap, objectheap);
     vm.load_class("java/lang/String");
@@ -80,10 +79,14 @@ fn run_file(filename: &str) {
     dprintln!("---- exec output end ------");
 
     dprintln!("stack trace: {:?}", &vm.stack[0..128]);
+
+    unsafe {
+        Box::from_raw(objectheap_ptr);
+    }
 }
 
 fn show_methods(filename: &str) {
-    let classheap_ptr = gc::new(classheap::ClassHeap::new());
+    let classheap_ptr = Box::into_raw(Box::new(classheap::ClassHeap::new()));
     let mut class = Class::new();
     class.classheap = Some(classheap_ptr);
     class.load_classfile(filename);
@@ -103,6 +106,8 @@ fn show_methods(filename: &str) {
         println!("  Code: ");
         method.code.as_ref().unwrap().dump_bytecode();
     }
+
+    unsafe { Box::from_raw(classheap_ptr) };
 }
 
 #[test]

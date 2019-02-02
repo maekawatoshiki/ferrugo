@@ -2,7 +2,7 @@ use super::super::class::class::Class;
 use super::super::class::classfile::constant::Constant;
 use super::super::class::classfile::{method, method::MethodInfo};
 use super::super::class::classheap::ClassHeap;
-use super::super::gc::{gc, gc::GcType};
+use super::super::gc::gc::GcType;
 use super::cfg::CFGMaker;
 use super::frame::{AType, Array, Frame, ObjectBody, VariableType};
 use super::native_functions;
@@ -51,7 +51,7 @@ pub struct VM {
 
 impl VM {
     pub fn new(classheap: GcType<ClassHeap>, objectheap: GcType<ObjectHeap>) -> Self {
-        let runtime_env = gc::new(RuntimeEnvironment {
+        let runtime_env = unsafe { &mut *objectheap }.gc.alloc(RuntimeEnvironment {
             objectheap,
             classheap,
         });
@@ -1391,7 +1391,7 @@ impl VM {
         self.stack[self.bp + frame.sp - 1] =
             unsafe { &mut *self.objectheap }.create_array(atype, size);
 
-        gc::mark_and_sweep(self);
+        unsafe { &mut *self.objectheap }.gc.mark_and_sweep(self);
     }
 
     fn run_new_obj_array(&mut self) {
@@ -1421,7 +1421,7 @@ impl VM {
             unsafe { &mut *self.objectheap }.create_obj_array(class, size);
         frame.pc += 3;
 
-        gc::mark_and_sweep(self);
+        unsafe { &mut *self.objectheap }.gc.mark_and_sweep(self);
     }
 
     fn run_new(&mut self) {
@@ -1451,7 +1451,7 @@ impl VM {
         frame.pc += 3;
         frame.sp += 1;
 
-        gc::mark_and_sweep(self);
+        unsafe { &mut *self.objectheap }.gc.mark_and_sweep(self);
     }
 }
 
@@ -1466,7 +1466,7 @@ impl VM {
     }
 
     pub fn load_class_by_file_name(&mut self, file_name: &str) -> GcType<Class> {
-        let class_ptr = gc::new(Class::new());
+        let class_ptr = unsafe { &mut *self.objectheap }.gc.alloc(Class::new());
 
         unsafe { (*class_ptr).classheap = Some(self.classheap) };
 
