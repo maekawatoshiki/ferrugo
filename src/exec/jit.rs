@@ -246,6 +246,7 @@ impl JIT {
             raw_local_vars.push(match ty {
                 VariableType::Int => Box::into_raw(Box::new(val as i32)) as *mut libc::c_void,
                 VariableType::Double => Box::into_raw(Box::new(u2d(val))) as *mut libc::c_void,
+                VariableType::Pointer => Box::into_raw(Box::new(val as u64)) as *mut libc::c_void,
                 _ => return None,
             });
         }
@@ -258,6 +259,7 @@ impl JIT {
             stack[bp + offset] = match ty {
                 VariableType::Int => *(raw_local_vars[i] as *mut i32) as u64,
                 VariableType::Double => d2u(*(raw_local_vars[i] as *mut f64)),
+                VariableType::Pointer => *(raw_local_vars[i] as *mut u64),
                 _ => return None,
             };
             Box::from_raw(raw_local_vars[i]);
@@ -776,7 +778,7 @@ impl JIT {
                         CString::new("").unwrap().as_ptr(),
                     ))
                 }
-                Inst::aload_0 => {
+                Inst::aload_0 | Inst::aload_1 | Inst::aload_2 | Inst::aload_3 => {
                     let index = (cur_code - Inst::aload_0) as usize;
                     let var = self.declare_local_var(index, &VariableType::Pointer);
                     stack.push(LLVMBuildLoad(
@@ -998,6 +1000,47 @@ impl JIT {
                         }
                         _ => return Err(Error::CouldntCompile),
                     };
+                }
+                Inst::baload => {
+                    let index = stack.pop().unwrap();
+                    let arrayref = stack.pop().unwrap();
+                    let val = LLVMBuildCall(
+                        self.builder,
+                        *self
+                            .native_functions
+                            .get("ferrugo_internal_baload")
+                            .unwrap(),
+                        vec![
+                            llvm_const_ptr(self.context, self.runtime_env as *mut u64),
+                            arrayref,
+                            index,
+                        ]
+                        .as_mut_ptr(),
+                        3,
+                        CString::new("").unwrap().as_ptr(),
+                    );
+                    stack.push(val);
+                }
+                Inst::bastore => {
+                    let val = stack.pop().unwrap();
+                    let index = stack.pop().unwrap();
+                    let arrayref = stack.pop().unwrap();
+                    LLVMBuildCall(
+                        self.builder,
+                        *self
+                            .native_functions
+                            .get("ferrugo_internal_bastore")
+                            .unwrap(),
+                        vec![
+                            llvm_const_ptr(self.context, self.runtime_env as *mut u64),
+                            arrayref,
+                            index,
+                            val,
+                        ]
+                        .as_mut_ptr(),
+                        4,
+                        CString::new("").unwrap().as_ptr(),
+                    );
                 }
                 Inst::ireturn | Inst::dreturn | Inst::areturn if !loop_compile => {
                     let val = stack.pop().unwrap();
@@ -1269,6 +1312,12 @@ impl JIT {
                     }
                     Inst::dload_0 | Inst::dload_1 | Inst::dload_2 | Inst::dload_3 => {
                         vars.insert((cur_code - Inst::dload_0) as usize, VariableType::Double);
+                    }
+                    Inst::aload_0 | Inst::aload_1 | Inst::aload_2 | Inst::aload_3 => {
+                        vars.insert((cur_code - Inst::aload_0) as usize, VariableType::Pointer);
+                    }
+                    Inst::astore_0 | Inst::astore_1 | Inst::astore_2 | Inst::astore_3 => {
+                        vars.insert((cur_code - Inst::astore_0) as usize, VariableType::Pointer);
                     }
                     Inst::istore_0 | Inst::istore_1 | Inst::istore_2 | Inst::istore_3 => {
                         vars.insert((cur_code - Inst::istore_0) as usize, VariableType::Int);

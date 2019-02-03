@@ -2,7 +2,7 @@ use super::super::class::class::Class;
 use super::super::gc::gc::GcType;
 use super::jit::*;
 use super::{
-    frame::{ObjectBody, VariableType},
+    frame::{Array, ObjectBody, VariableType},
     vm::RuntimeEnvironment,
 };
 use llvm;
@@ -52,6 +52,8 @@ pub unsafe fn native_functions(
     define_native_function!(dbl,  [ptr, dbl, dbl], "java/lang/Math.pow:(DD)D");
     define_native_function!(dbl,  [ptr, dbl],      "java/lang/Math.abs:(D)D");
     define_native_function!(ptr,  [ptr, ptr],      "ferrugo_internal_new");
+    define_native_function!(int,  [ptr, ptr, int], "ferrugo_internal_baload");
+    define_native_function!(void,  [ptr, ptr, int, int], "ferrugo_internal_bastore");
 
     map
 }
@@ -100,6 +102,14 @@ pub unsafe fn add_native_functions(
         (
             "ferrugo_internal_new",
             ferrugo_internal_new as *mut libc::c_void,
+        ),
+        (
+            "ferrugo_internal_baload",
+            ferrugo_internal_baload as *mut libc::c_void,
+        ),
+        (
+            "ferrugo_internal_bastore",
+            ferrugo_internal_bastore as *mut libc::c_void,
         ),
     ] {
         llvm::execution_engine::LLVMAddGlobalMapping(
@@ -190,16 +200,6 @@ pub extern "C" fn java_lang_stringbuilder_tostring_string(
 }
 
 #[no_mangle]
-pub extern "C" fn ferrugo_internal_new(
-    renv: *mut RuntimeEnvironment,
-    class: *mut Class,
-) -> *mut ObjectBody {
-    let renv = unsafe { &mut *renv };
-    let object = unsafe { &mut *renv.objectheap }.create_object(class);
-    object as GcType<ObjectBody>
-}
-
-#[no_mangle]
 pub extern "C" fn java_lang_math_random_d(_renv: *mut RuntimeEnvironment) -> f64 {
     use rand::random;
     random::<f64>()
@@ -227,4 +227,35 @@ pub extern "C" fn java_lang_math_abs_d_d(_renv: *mut RuntimeEnvironment, x: f64)
 #[no_mangle]
 pub extern "C" fn java_lang_math_pow_dd_d(_renv: *mut RuntimeEnvironment, x: f64, y: f64) -> f64 {
     x.powf(y)
+}
+
+// Internal Functions
+
+#[no_mangle]
+pub extern "C" fn ferrugo_internal_new(
+    renv: *mut RuntimeEnvironment,
+    class: *mut Class,
+) -> *mut ObjectBody {
+    let renv = unsafe { &mut *renv };
+    let object = unsafe { &mut *renv.objectheap }.create_object(class);
+    object as GcType<ObjectBody>
+}
+
+#[no_mangle]
+pub extern "C" fn ferrugo_internal_baload(
+    _renv: *mut RuntimeEnvironment,
+    array: *mut Array,
+    index: u32,
+) -> u32 {
+    unsafe { &*array }.at::<u8>(index as isize) as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ferrugo_internal_bastore(
+    _renv: *mut RuntimeEnvironment,
+    array: *mut Array,
+    index: u32,
+    val: u32,
+) {
+    unsafe { &mut *array }.store(index as isize, val as u8)
 }
