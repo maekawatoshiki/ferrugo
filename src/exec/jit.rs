@@ -1004,8 +1004,7 @@ impl JIT {
                 Inst::baload => {
                     let index = stack.pop().unwrap();
                     let arrayref = stack.pop().unwrap();
-                    let val = LLVMBuildCall(
-                        self.builder,
+                    let val = self.call_function(
                         *self
                             .native_functions
                             .get("ferrugo_internal_baload")
@@ -1014,10 +1013,7 @@ impl JIT {
                             llvm_const_ptr(self.context, self.runtime_env as *mut u64),
                             arrayref,
                             index,
-                        ]
-                        .as_mut_ptr(),
-                        3,
-                        CString::new("").unwrap().as_ptr(),
+                        ],
                     );
                     stack.push(val);
                 }
@@ -1025,8 +1021,7 @@ impl JIT {
                     let val = stack.pop().unwrap();
                     let index = stack.pop().unwrap();
                     let arrayref = stack.pop().unwrap();
-                    LLVMBuildCall(
-                        self.builder,
+                    self.call_function(
                         *self
                             .native_functions
                             .get("ferrugo_internal_bastore")
@@ -1036,10 +1031,7 @@ impl JIT {
                             arrayref,
                             index,
                             val,
-                        ]
-                        .as_mut_ptr(),
-                        4,
-                        CString::new("").unwrap().as_ptr(),
+                        ],
                     );
                 }
                 Inst::ireturn | Inst::dreturn | Inst::areturn if !loop_compile => {
@@ -1094,16 +1086,12 @@ impl JIT {
                         .unwrap();
                     let classheap = (&mut *self.runtime_env).classheap;
                     let class = (&*classheap).get_class(class_name).unwrap();
-                    let ret = LLVMBuildCall(
-                        self.builder,
+                    let ret = self.call_function(
                         *self.native_functions.get("ferrugo_internal_new").unwrap(),
                         vec![
                             llvm_const_ptr(self.context, self.runtime_env as *mut u64),
                             llvm_const_ptr(self.context, class as *mut u64),
-                        ]
-                        .as_mut_ptr(),
-                        2,
-                        CString::new("").unwrap().as_ptr(),
+                        ],
                     );
                     stack.push(ret);
                 }
@@ -1202,13 +1190,7 @@ impl JIT {
                     }
                     args.reverse();
 
-                    let ret = LLVMBuildCall(
-                        self.builder,
-                        llvm_func,
-                        args.as_mut_ptr(),
-                        args.len() as u32,
-                        CString::new("").unwrap().as_ptr(),
-                    );
+                    let ret = self.call_function(llvm_func, args);
 
                     if LLVMGetTypeKind(LLVMGetElementType(LLVMGetReturnType(LLVMTypeOf(llvm_func))))
                         != llvm::LLVMTypeKind::LLVMVoidTypeKind
@@ -1271,6 +1253,20 @@ impl JIT {
         stack.push(phi);
 
         Ok(())
+    }
+
+    unsafe fn call_function(
+        &self,
+        callee: LLVMValueRef,
+        mut args: Vec<LLVMValueRef>,
+    ) -> LLVMValueRef {
+        LLVMBuildCall(
+            self.builder,
+            callee,
+            args.as_mut_ptr(),
+            args.len() as u32,
+            CString::new("").unwrap().as_ptr(),
+        )
     }
 
     unsafe fn declare_local_var(&mut self, name: usize, ty: &VariableType) -> LLVMValueRef {

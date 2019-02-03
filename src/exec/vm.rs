@@ -73,13 +73,8 @@ impl VM {
 
 impl VM {
     pub fn run(&mut self) -> Inst::Code {
-        macro_rules! frame {
-            () => {{
-                self.frame_stack.last_mut().unwrap()
-            }};
-        }
-
-        let frame = frame!();
+        let frame_stack_len = self.frame_stack.len();
+        let frame = &mut self.frame_stack[frame_stack_len - 1];
 
         if frame
             .method_info
@@ -150,7 +145,7 @@ impl VM {
         }
 
         loop {
-            let frame = frame!();
+            let frame = &mut self.frame_stack[frame_stack_len - 1];
             let cur_code = code[frame.pc as usize];
 
             match cur_code {
@@ -277,19 +272,19 @@ impl VM {
                 }
                 Inst::aload => {
                     let index = code[frame.pc + 1] as usize;
-                    self.stack[self.bp + frame.sp] = self.stack[self.bp + index].clone();
+                    self.stack[self.bp + frame.sp] = self.stack[self.bp + index];
                     frame.sp += 1;
                     frame.pc += 2;
                 }
                 Inst::dload => {
                     let index = code[frame.pc + 1] as usize;
-                    self.stack[self.bp + frame.sp] = self.stack[self.bp + index].clone();
+                    self.stack[self.bp + frame.sp] = self.stack[self.bp + index];
                     frame.sp += 2;
                     frame.pc += 2;
                 }
                 Inst::iload => {
                     let index = code[frame.pc + 1] as usize;
-                    self.stack[self.bp + frame.sp] = self.stack[self.bp + index].clone();
+                    self.stack[self.bp + frame.sp] = self.stack[self.bp + index];
                     frame.sp += 1;
                     frame.pc += 2;
                 }
@@ -301,13 +296,13 @@ impl VM {
                 }
                 Inst::dstore_0 | Inst::dstore_1 | Inst::dstore_2 | Inst::dstore_3 => {
                     self.stack[self.bp + (cur_code as usize - Inst::dstore_0 as usize)] =
-                        self.stack[self.bp + frame.sp - 2].clone();
+                        self.stack[self.bp + frame.sp - 2];
                     frame.sp -= 2;
                     frame.pc += 1;
                 }
                 Inst::astore_0 | Inst::astore_1 | Inst::astore_2 | Inst::astore_3 => {
                     self.stack[self.bp + (cur_code as usize - Inst::astore_0 as usize)] =
-                        self.stack[self.bp + frame.sp - 1].clone();
+                        self.stack[self.bp + frame.sp - 1];
                     frame.sp -= 1;
                     frame.pc += 1;
                 }
@@ -482,7 +477,7 @@ impl VM {
                     frame.pc += 1;
                 }
                 Inst::dup => {
-                    self.stack[self.bp + frame.sp] = self.stack[self.bp + frame.sp - 1].clone();
+                    self.stack[self.bp + frame.sp] = self.stack[self.bp + frame.sp - 1];
                     frame.sp += 1;
                     frame.pc += 1;
                 }
@@ -497,17 +492,6 @@ impl VM {
                     frame.pc += 1;
                 }
                 Inst::dup2_x1 => {
-                    // let form2 = match self.stack[self.bp + frame.sp - 2] {
-                    //     Variable::Double(_) => true,
-                    //     _ => false,
-                    // };
-                    // if form2 {
-                    //     let val1 = self.stack[self.bp + frame.sp - 2];
-                    //     let val2 = self.stack[self.bp + frame.sp - 3];
-                    //     self.stack[self.bp + frame.sp - 3] = val1;
-                    //     self.stack[self.bp + frame.sp - 1] = val2;
-                    //     self.stack[self.bp + frame.sp + 0] = val1;
-                    // } else {
                     let val1 = self.stack[self.bp + frame.sp - 1];
                     let val2 = self.stack[self.bp + frame.sp - 2];
                     let val3 = self.stack[self.bp + frame.sp - 3];
@@ -516,24 +500,14 @@ impl VM {
                     self.stack[self.bp + frame.sp - 1] = val3;
                     self.stack[self.bp + frame.sp + 0] = val2;
                     self.stack[self.bp + frame.sp + 1] = val1;
-                    // }
                     frame.sp += 2;
                     frame.pc += 1;
                 }
                 Inst::dup2 => {
-                    // let form2 = match self.stack[self.bp + frame.sp - 2] {
-                    //     Variable::Double(_) => true,
-                    //     _ => false,
-                    // };
-                    // if form2 {
-                    //     let val = self.stack[self.bp + frame.sp - 2];
-                    //     self.stack[self.bp + frame.sp] = val;
-                    // } else {
                     let val1 = self.stack[self.bp + frame.sp - 1];
                     let val2 = self.stack[self.bp + frame.sp - 2];
                     self.stack[self.bp + frame.sp + 0] = val2;
                     self.stack[self.bp + frame.sp + 1] = val1;
-                    // }
                     frame.sp += 2;
                     frame.pc += 1;
                 }
@@ -777,26 +751,16 @@ impl VM {
                         }
                     });
                 }
-                // Inst::ifnonnull => {
-                //     let branch = ((code[frame.pc + 1] as i16) << 8) + code[frame.pc + 2] as i16;
-                //     let val = self.stack[self.bp + frame.sp - 1].clone();
-                //     if true {
-                //         frame.pc = (frame.pc as isize + branch as isize) as usize;
-                //     } else {
-                //         frame.pc += 3;
-                //     }
-                //     frame.sp -= 1;
-                // }
                 Inst::ireturn => {
-                    self.stack[self.bp] = self.stack[self.bp + frame.sp - 1].clone();
+                    self.stack[self.bp] = self.stack[self.bp + frame.sp - 1];
                     return Inst::ireturn;
                 }
                 Inst::areturn => {
-                    self.stack[self.bp] = self.stack[self.bp + frame.sp - 1].clone();
+                    self.stack[self.bp] = self.stack[self.bp + frame.sp - 1];
                     return Inst::areturn;
                 }
                 Inst::dreturn => {
-                    self.stack[self.bp] = self.stack[self.bp + frame.sp - 2].clone();
+                    self.stack[self.bp] = self.stack[self.bp + frame.sp - 2];
                     return Inst::dreturn;
                 }
                 Inst::return_ => {
@@ -949,10 +913,7 @@ impl VM {
     }
 
     fn run_get_field(&mut self) {
-        #[rustfmt::skip]
-        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
-
-        let frame = frame!();
+        let frame = self.frame_stack.last_mut().unwrap();
         let frame_class = unsafe { &*frame.class.unwrap() };
         let index = frame
             .method_info
@@ -992,10 +953,7 @@ impl VM {
     }
 
     fn run_put_field(&mut self) {
-        #[rustfmt::skip]
-        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
-
-        let frame = frame!();
+        let frame = self.frame_stack.last_mut().unwrap();
         let frame_class = unsafe { &*frame.class.unwrap() };
         let index = frame
             .method_info
@@ -1045,10 +1003,8 @@ impl VM {
     }
 
     fn run_get_field_quick(&mut self) {
-        #[rustfmt::skip]
-        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
-
-        let frame = frame!();
+        let frame_stack_len = self.frame_stack.len();
+        let frame = &mut self.frame_stack[frame_stack_len - 1];
         let id = frame
             .method_info
             .code
@@ -1063,10 +1019,8 @@ impl VM {
     }
 
     fn run_put_field_quick(&mut self) {
-        #[rustfmt::skip]
-        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
-
-        let frame = frame!();
+        let frame_stack_len = self.frame_stack.len();
+        let frame = &mut self.frame_stack[frame_stack_len - 1];
         let id = frame
             .method_info
             .code
@@ -1083,10 +1037,8 @@ impl VM {
     }
 
     fn run_get_field2_quick(&mut self) {
-        #[rustfmt::skip]
-        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
-
-        let frame = frame!();
+        let frame_stack_len = self.frame_stack.len();
+        let frame = &mut self.frame_stack[frame_stack_len - 1];
         let id = frame
             .method_info
             .code
@@ -1102,7 +1054,8 @@ impl VM {
     }
 
     fn run_put_field2_quick(&mut self) {
-        let frame = self.frame_stack.last_mut().unwrap();
+        let frame_stack_len = self.frame_stack.len();
+        let frame = &mut self.frame_stack[frame_stack_len - 1];
         let id = frame
             .method_info
             .code
@@ -1211,7 +1164,7 @@ impl VM {
         // TODO: ``descriptor`` will be necessary to verify the field's type.
 
         let frame = &mut self.frame_stack[frame_stack_len - 1];
-        let val = self.stack[self.bp + frame.sp - 1].clone();
+        let val = self.stack[self.bp + frame.sp - 1];
         frame.sp -= 1;
         frame.pc += 3;
 
@@ -1220,7 +1173,7 @@ impl VM {
 
     fn run_invoke_static(&mut self, is_invoke_static: bool) {
         #[rustfmt::skip]
-        macro_rules! frame { () => {{ self.frame_stack.last_mut().unwrap() }}; }
+        macro_rules! frame { () => {{ let len = self.frame_stack.len(); &mut self.frame_stack[len - 1] }}; }
 
         let frame_class = unsafe { &*frame!().class.unwrap() };
         let mref_index = {
@@ -1377,7 +1330,8 @@ impl VM {
     }
 
     fn run_new_array(&mut self) {
-        let frame = self.frame_stack.last_mut().unwrap();
+        let frame_stack_len = self.frame_stack.len();
+        let frame = &mut self.frame_stack[frame_stack_len - 1];
         let atype = {
             let atype = frame
                 .method_info
