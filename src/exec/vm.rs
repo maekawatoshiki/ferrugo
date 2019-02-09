@@ -466,9 +466,9 @@ impl VM {
                         (self.stack[self.bp + frame.sp - 1] as i16) as u64;
                     frame.pc += 1;
                 }
-                Inst::invokestatic => self.run_invoke_static(true),
-                Inst::invokespecial => self.run_invoke_static(false),
-                Inst::invokevirtual => self.run_invoke_static(false),
+                Inst::invokestatic | Inst::invokespecial | Inst::invokevirtual => {
+                    self.run_invoke_static(cur_code)
+                }
                 Inst::new => self.run_new(),
                 Inst::newarray => self.run_new_array(),
                 Inst::anewarray => self.run_new_obj_array(),
@@ -1176,7 +1176,7 @@ impl VM {
         unsafe { &mut *class }.put_static_variable(name.as_str(), val)
     }
 
-    fn run_invoke_static(&mut self, is_invoke_static: bool) {
+    fn run_invoke_static(&mut self, instr: u8) {
         #[rustfmt::skip]
         macro_rules! frame { () => {{ let len = self.frame_stack.len(); &mut self.frame_stack[len - 1] }}; }
 
@@ -1221,14 +1221,22 @@ impl VM {
             .get_utf8()
             .unwrap();
         let (virtual_class, exec_method) = unsafe { &*class }.get_method(name, descriptor).unwrap();
-        let params_num = count_params(descriptor.as_str()) + if is_invoke_static { 0 } else { 1 };
+        let params_num =
+            count_params(descriptor.as_str()) + if instr == Inst::invokestatic { 0 } else { 1 };
         let former_sp = frame!().sp as usize;
 
-        if let Some(sp) = unsafe {
-            self.run_jit_compiled_func(&exec_method, former_sp, descriptor.as_str(), virtual_class)
-        } {
-            frame!().sp = sp;
-            return;
+        if instr != Inst::invokespecial {
+            if let Some(sp) = unsafe {
+                self.run_jit_compiled_func(
+                    &exec_method,
+                    former_sp,
+                    descriptor.as_str(),
+                    virtual_class,
+                )
+            } {
+                frame!().sp = sp;
+                return;
+            }
         }
 
         self.frame_stack.push(Frame::new());

@@ -369,7 +369,11 @@ impl JIT {
         let bb_last = (*self.bblocks.get(&last_block.start).unwrap()).retrieve();
         LLVMPositionBuilderAtEnd(self.builder, bb_last);
         if cur_bb_has_no_terminator(self.builder) {
-            LLVMBuildRet(self.builder, LLVMConstNull(func_ret_ty));
+            if ret_ty == VariableType::Void {
+                LLVMBuildRetVoid(self.builder);
+            } else {
+                LLVMBuildRet(self.builder, LLVMConstNull(func_ret_ty));
+            }
         }
 
         let mut iter_bb = LLVMGetFirstBasicBlock(func);
@@ -377,7 +381,11 @@ impl JIT {
             if LLVMIsATerminatorInst(LLVMGetLastInstruction(iter_bb)) == ptr::null_mut() {
                 let terminator_builder = LLVMCreateBuilderInContext(self.context);
                 LLVMPositionBuilderAtEnd(terminator_builder, iter_bb);
-                LLVMBuildRet(terminator_builder, LLVMConstNull(func_ret_ty));
+                if ret_ty == VariableType::Void {
+                    LLVMBuildRetVoid(self.builder);
+                } else {
+                    LLVMBuildRet(terminator_builder, LLVMConstNull(func_ret_ty));
+                }
             }
             iter_bb = LLVMGetNextBasicBlock(iter_bb);
         }
@@ -1376,7 +1384,7 @@ impl JIT {
                     i += 1;
                     continue;
                 }
-                c => panic!("{:?}", c),
+                _ => return None,
             };
             if args {
                 args_ty.push(ty)
