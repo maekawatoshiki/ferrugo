@@ -97,7 +97,7 @@ pub struct JIT {
     pass_mgr: LLVMPassManagerRef,
     cur_func: Option<LLVMValueRef>,
     cur_class: Option<GcType<Class>>,
-    cur_func_indices: Option<(usize, usize)>,
+    cur_func_indices: Option<(String, usize, usize)>,
     env: FxHashMap<usize, LLVMValueRef>,
     bblocks: FxHashMap<usize, BasicBlockInfo>,
     phi_stack: FxHashMap<usize, Vec<PhiStack>>, // destination,
@@ -279,7 +279,11 @@ impl JIT {
         static_method: bool,
     ) -> CResult<FuncJITExecInfo> {
         self.cur_class = Some(class);
-        self.cur_func_indices = Some((name_index, descriptor_index));
+        self.cur_func_indices = Some((
+            (&*class).get_name().unwrap().clone(),
+            name_index,
+            descriptor_index,
+        ));
 
         let (arg_types, ret_ty) = {
             let (mut arg_types, ret_ty) = self
@@ -419,6 +423,7 @@ impl JIT {
         blocks: &mut Vec<Block>,
     ) -> CResult<LoopJITExecInfo> {
         self.cur_class = Some(class);
+        self.cur_func_indices = None;
 
         let local_vars = self.count_local_variables(blocks);
 
@@ -1155,8 +1160,12 @@ impl JIT {
                     let jit_info_mgr = (&mut *class).get_jit_info_mgr(name_index, descriptor_index);
                     let jit_func = jit_info_mgr.get_jit_func();
                     let mut renv_need = false;
-                    let llvm_func = if Some((name_index as usize, descriptor_index as usize))
-                        == self.cur_func_indices
+
+                    let llvm_func = if Some((
+                        class_name.clone(),
+                        name_index as usize,
+                        descriptor_index as usize,
+                    )) == self.cur_func_indices
                     {
                         self.cur_func.unwrap()
                     } else if let Some(native_func) = {
@@ -1361,12 +1370,13 @@ impl JIT {
                 'I' => VariableType::Int,
                 'Z' => VariableType::Int,
                 'D' => VariableType::Double,
+                'V' => VariableType::Void,
                 ')' => {
                     args = false;
                     i += 1;
                     continue;
                 }
-                _ => return None,
+                c => panic!("{:?}", c),
             };
             if args {
                 args_ty.push(ty)

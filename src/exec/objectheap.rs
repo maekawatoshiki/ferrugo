@@ -1,6 +1,7 @@
 use super::super::class::{class::Class, classheap::ClassHeap};
 use super::super::gc::{gc::GcType, gc::GC};
 use super::frame::{AType, Array, ObjectBody};
+use std::slice::Iter;
 
 #[derive(Clone, Debug)]
 pub struct ObjectHeap {
@@ -46,33 +47,23 @@ impl ObjectHeap {
         self.gc.alloc(Array::new(AType::Class(class), size, None)) as u64
     }
 
-    pub fn create_multi_array(&mut self, atype: AType, counts: Vec<usize>) -> u64 {
-        let (element_type, dimensions) = if let AType::Multi {
-            element_type,
-            dimensions,
-        } = atype.clone()
-        {
-            (element_type, dimensions)
-        } else {
-            panic!()
-        };
+    pub fn create_multi_array(&mut self, atype: AType, mut counts: Iter<usize>) -> u64 {
+        let count = *counts.next().unwrap();
 
-        if dimensions <= 1 {
-            return self.gc.alloc(Array::new(*element_type, counts[0], None)) as u64;
+        if atype.get_multi_dimensions() <= 1 {
+            return self.gc.alloc(Array::new(
+                atype.get_multi_element_type().clone(),
+                count,
+                None,
+            )) as u64;
         }
 
-        let mut array = Array::new(atype, counts[0], None);
+        let mut array = Array::new(atype.clone(), count, None);
 
-        for i in 0..counts[0] {
+        for i in 0..count {
             array.store(
                 i as isize,
-                self.create_multi_array(
-                    AType::Multi {
-                        element_type: element_type.clone(),
-                        dimensions: dimensions - 1,
-                    },
-                    counts[1..].to_vec(),
-                ),
+                self.create_multi_array(atype.clone().reduce_dimension(), counts.clone()),
             );
         }
 

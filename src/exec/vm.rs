@@ -1413,7 +1413,7 @@ impl VM {
         }
         frame.sp -= dimensions;
         self.stack[self.bp + frame.sp] =
-            unsafe { &mut *self.objectheap }.create_multi_array(atype, counts);
+            unsafe { &mut *self.objectheap }.create_multi_array(atype, counts.iter());
         frame.sp += 1;
         frame.pc += 4;
 

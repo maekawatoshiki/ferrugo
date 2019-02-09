@@ -102,6 +102,33 @@ impl Array {
 }
 
 impl AType {
+    pub fn reduce_dimension(self) -> AType {
+        match self {
+            AType::Multi {
+                element_type,
+                dimensions,
+            } => AType::Multi {
+                element_type: element_type,
+                dimensions: dimensions - 1,
+            },
+            _ => panic!(),
+        }
+    }
+
+    pub fn get_multi_dimensions(&self) -> usize {
+        match self {
+            AType::Multi { dimensions, .. } => *dimensions,
+            _ => panic!(),
+        }
+    }
+
+    pub fn get_multi_element_type(&self) -> &AType {
+        match self {
+            AType::Multi { element_type, .. } => element_type,
+            _ => panic!(),
+        }
+    }
+
     // https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-6.html#jvms-6.5.sastore
     pub fn to_atype(n: usize) -> AType {
         match n {
