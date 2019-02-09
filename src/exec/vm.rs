@@ -785,6 +785,11 @@ impl VM {
                     self.stack[self.bp + frame.sp - 1] = array.get_length() as u64;
                     frame.pc += 1;
                 }
+                Inst::checkcast => {
+                    // TODO: Implement
+                    frame.pc += 3;
+                }
+                Inst::multianearray => self.run_multianewarray(),
                 e => unimplemented!("{}", e),
             }
         }
@@ -1381,6 +1386,67 @@ impl VM {
         unsafe { &mut *self.objectheap }.gc.mark_and_sweep(self);
     }
 
+    fn run_multianewarray(&mut self) {
+        let frame_stack_len = self.frame_stack.len();
+        let (frame_class, class_index, dimensions) = {
+            let frame = &self.frame_stack[frame_stack_len - 1];
+            let frame_class = unsafe { &*frame.class.unwrap() };
+            let code = unsafe { &*frame.method_info.code.as_ref().unwrap().code };
+            let class_index = ((code[frame.pc + 1] as usize) << 8) + code[frame.pc + 2] as usize;
+            (frame_class, class_index, code[frame.pc + 3] as usize)
+        };
+
+        let name_index = fld!(
+            Constant::ClassInfo,
+            &frame_class.classfile.constant_pool[class_index],
+            name_index
+        );
+        let class_name = frame_class.classfile.constant_pool[name_index]
+            .get_utf8()
+            .unwrap();
+        let atype = self.resolve_class_name(class_name);
+
+        let frame = &mut self.frame_stack[frame_stack_len - 1];
+        let mut counts = vec![];
+        for i in 0..dimensions {
+            counts.push(self.stack[self.bp + frame.sp - dimensions + i] as usize);
+        }
+        frame.sp -= dimensions;
+        self.stack[self.bp + frame.sp] =
+            unsafe { &mut *self.objectheap }.create_multi_array(atype, counts);
+        frame.sp += 1;
+        frame.pc += 4;
+
+        unsafe { &mut *self.objectheap }.gc.mark_and_sweep(self);
+    }
+
+    fn resolve_class_name(&mut self, name: &str) -> AType {
+        match name.chars().nth(0).unwrap() {
+            '[' => match self.resolve_class_name(&name[1..]) {
+                AType::Multi {
+                    element_type,
+                    dimensions,
+                } => AType::Multi {
+                    element_type,
+                    dimensions: 1 + dimensions,
+                },
+                otherwise => AType::Multi {
+                    element_type: Box::new(otherwise),
+                    dimensions: 1,
+                },
+            },
+            'L' => AType::Class(self.load_class(&name[1..])),
+            'B' => AType::Byte,
+            'C' => AType::Char,
+            'I' => AType::Int,
+            'Z' => AType::Boolean,
+            'F' => AType::Float,
+            'J' => AType::Long,
+            'D' => AType::Double,
+            _ => panic!(),
+        }
+    }
+
     fn run_new(&mut self) {
         let frame_stack_len = self.frame_stack.len();
         let (frame_class, class_index) = {
@@ -1613,7 +1679,9 @@ pub mod Inst {
     pub const newarray:     u8 = 188;
     pub const anewarray:    u8 = 189;
     pub const arraylength:  u8 = 190;
+    pub const checkcast:    u8 = 192;
     pub const monitorenter: u8 = 194;
+    pub const multianearray:u8 = 197;
     pub const ifnull:       u8 = 198;
     pub const ifnonnull:    u8 = 199;
     // Quick opcodes (faster)
@@ -1636,8 +1704,9 @@ pub mod Inst {
             dstore | astore | istore | ldc | aload | dload | iload | bipush | newarray => 2,
             sipush | ldc2_w | iinc | invokestatic | invokespecial | invokevirtual | new | anewarray 
                 | goto | ifeq | iflt | ifne | ifle | ifge | if_icmpne | if_icmpge | if_icmpgt | if_icmpeq | if_acmpne | if_icmplt |
-                ifnull | ifnonnull | 
+                ifnull | ifnonnull | checkcast |
                 getstatic | putstatic | getfield | putfield | getfield_quick | putfield_quick | getfield2_quick | putfield2_quick => 3, 
+            multianearray => 4,
             e => unimplemented!("{}", e),
         }
     }

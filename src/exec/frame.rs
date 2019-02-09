@@ -56,6 +56,10 @@ pub enum AType {
     Int,
     Long,
     Class(GcType<Class>),
+    Multi {
+        element_type: Box<AType>,
+        dimensions: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -123,7 +127,7 @@ impl AType {
             AType::Short => 9,
             AType::Int => 10,
             AType::Long => 11,
-            AType::Class(_) => panic!(),
+            _ => panic!(),
         }
     }
 
@@ -139,6 +143,7 @@ impl AType {
             AType::Long => 8,
             // TODO: This seems to be correct only on 64-bit platforms
             AType::Class(_) => 8,
+            AType::Multi { .. } => 8,
         }
     }
 }

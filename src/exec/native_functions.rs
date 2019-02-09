@@ -53,6 +53,7 @@ pub unsafe fn native_functions(
     define_native_function!(dbl,  [ptr, dbl],      "java/lang/Math.abs:(D)D");
     define_native_function!(ptr,  [ptr, ptr],      "ferrugo_internal_new");
     define_native_function!(int,  [ptr, ptr, int], "ferrugo_internal_baload");
+    define_native_function!(ptr,  [ptr, ptr, int], "ferrugo_internal_aaload");
     define_native_function!(void,  [ptr, ptr, int, int], "ferrugo_internal_bastore");
 
     map
@@ -106,6 +107,10 @@ pub unsafe fn add_native_functions(
         (
             "ferrugo_internal_baload",
             ferrugo_internal_baload as *mut libc::c_void,
+        ),
+        (
+            "ferrugo_internal_aaload",
+            ferrugo_internal_aaload as *mut libc::c_void,
         ),
         (
             "ferrugo_internal_bastore",
@@ -248,6 +253,15 @@ pub extern "C" fn ferrugo_internal_baload(
     index: u32,
 ) -> u32 {
     unsafe { &*array }.at::<u8>(index as isize) as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ferrugo_internal_aaload(
+    _renv: *mut RuntimeEnvironment,
+    array: *mut Array,
+    index: u32,
+) -> u64 {
+    unsafe { &*array }.at::<u64>(index as isize) as u64
 }
 
 #[no_mangle]

@@ -1001,13 +1001,17 @@ impl JIT {
                         _ => return Err(Error::CouldntCompile),
                     };
                 }
-                Inst::baload => {
+                Inst::aaload | Inst::baload => {
                     let index = stack.pop().unwrap();
                     let arrayref = stack.pop().unwrap();
                     let val = self.call_function(
                         *self
                             .native_functions
-                            .get("ferrugo_internal_baload")
+                            .get(match cur_code {
+                                Inst::baload => "ferrugo_internal_baload",
+                                Inst::aaload => "ferrugo_internal_aaload",
+                                _ => unreachable!(),
+                            })
                             .unwrap(),
                         vec![
                             llvm_const_ptr(self.context, self.runtime_env as *mut u64),
