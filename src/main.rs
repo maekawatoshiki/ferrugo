@@ -116,6 +116,7 @@ fn run_example() {
     run_file("examples/MillerRabin.class");
     run_file("examples/BigInt.class");
     run_file("examples/EratosthenesSieve.class");
+    run_file("examples/GameOfLife.class");
 }
 
 #[test]
