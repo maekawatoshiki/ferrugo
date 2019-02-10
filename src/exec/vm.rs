@@ -852,18 +852,20 @@ impl VM {
                     objectheap.create_string_object(format!("{}", i), self.classheap);
             }
             "java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;" => {
-                native_functions::java_lang_stringbuilder_append_string_stringbuilder(
-                    self.runtime_env,
-                    self.stack[self.bp + 0] as GcType<ObjectBody>,
-                    self.stack[self.bp + frame.sp - 1] as GcType<ObjectBody>,
-                );
+                self.stack[self.bp] =
+                    native_functions::java_lang_stringbuilder_append_string_stringbuilder(
+                        self.runtime_env,
+                        self.stack[self.bp + 0] as GcType<ObjectBody>,
+                        self.stack[self.bp + frame.sp - 1] as GcType<ObjectBody>,
+                    ) as u64;
             }
             "java/lang/StringBuilder.append:(I)Ljava/lang/StringBuilder;" => {
-                native_functions::java_lang_stringbuilder_append_i_stringbuilder(
-                    self.runtime_env,
-                    self.stack[self.bp + 0] as GcType<ObjectBody>,
-                    self.stack[self.bp + frame.sp - 1] as i32,
-                );
+                self.stack[self.bp] =
+                    native_functions::java_lang_stringbuilder_append_i_stringbuilder(
+                        self.runtime_env,
+                        self.stack[self.bp + 0] as GcType<ObjectBody>,
+                        self.stack[self.bp + frame.sp - 1] as i32,
+                    ) as u64;
             }
             "java/lang/StringBuilder.toString:()Ljava/lang/String;" => {
                 let s = native_functions::java_lang_stringbuilder_tostring_string(

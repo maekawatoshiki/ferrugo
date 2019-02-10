@@ -29,12 +29,8 @@ impl ObjectHeap {
             .unwrap();
         let object = self.create_object(class);
 
-        unsafe { &mut *(object as GcType<ObjectBody>) }
-            .variables
-            .insert(
-                0,
-                self.gc.alloc(Array::new(AType::Char, 0, Some(string))) as u64,
-            );
+        unsafe { &mut *(object as GcType<ObjectBody>) }.variables[0] =
+            self.gc.alloc(Array::new(AType::Char, 0, Some(string))) as u64;
 
         object
     }

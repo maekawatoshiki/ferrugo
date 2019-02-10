@@ -161,18 +161,25 @@ pub extern "C" fn java_lang_stringbuilder_append_i_stringbuilder(
     obj: *mut ObjectBody,
     i: i32,
 ) -> *mut ObjectBody {
-    let renv = unsafe { &mut *renv };
-    let string_builder = unsafe { &mut *obj };
     unsafe {
-        let string = &mut string_builder.variables[0];
-        if *string == 0 {
-            *string = (&mut *renv.objectheap).create_string_object("".to_string(), renv.classheap)
+        let renv = &mut *renv;
+        let string_builder = &mut *obj;
+
+        let string_obj = &mut string_builder.variables[0];
+        // TODO: Currently, JIT doesn't support 'invokespecial'. Therefore StringBuilder newly
+        // created in JIT-compiled code is not initialized. That's why the code below is needed.
+        if *string_obj == 0 {
+            *string_obj =
+                (&mut *renv.objectheap).create_string_object("".to_string(), renv.classheap)
         }
-        let mut string2 = (&mut *(*string as GcType<ObjectBody>))
+
+        let mut string = (&mut *(*string_obj as GcType<ObjectBody>))
             .get_string_mut()
             .clone();
-        string2.push_str(format!("{}", i).as_str());
-        *string = (&mut *renv.objectheap).create_string_object(string2.to_string(), renv.classheap);
+        string.push_str(format!("{}", i).as_str());
+
+        *string_obj =
+            (&mut *renv.objectheap).create_string_object(string.to_string(), renv.classheap);
     }
     obj
 }
@@ -183,19 +190,27 @@ pub extern "C" fn java_lang_stringbuilder_append_string_stringbuilder(
     obj: *mut ObjectBody,
     s: *mut ObjectBody,
 ) -> *mut ObjectBody {
-    let renv = unsafe { &mut *renv };
-    let string_builder = unsafe { &mut *obj };
-    let append_str = unsafe { (&mut *s).get_string_mut() };
     unsafe {
-        let string = &mut string_builder.variables[0];
-        if *string == 0 {
-            *string = (&mut *renv.objectheap).create_string_object("".to_string(), renv.classheap)
+        let renv = &mut *renv;
+        let string_builder = &mut *obj;
+
+        let string_obj = &mut string_builder.variables[0];
+        // TODO: Currently, JIT doesn't support 'invokespecial'. Therefore StringBuilder newly
+        // created in JIT-compiled code is not initialized. That's why the code below is needed.
+        if *string_obj == 0 {
+            *string_obj =
+                (&mut *renv.objectheap).create_string_object("".to_string(), renv.classheap)
         }
-        let mut string2 = (&mut *(*string as GcType<ObjectBody>))
+
+        let mut str1 = (&mut *(*string_obj as GcType<ObjectBody>))
             .get_string_mut()
             .clone();
-        string2.push_str(append_str);
-        *string = (&mut *renv.objectheap).create_string_object(string2.to_string(), renv.classheap);
+        let str2 = (&mut *s).get_string_mut();
+
+        str1.push_str(str2);
+
+        *string_obj =
+            (&mut *renv.objectheap).create_string_object(str1.to_string(), renv.classheap);
     }
     obj
 }
