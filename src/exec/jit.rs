@@ -791,6 +791,15 @@ impl JIT {
                         CString::new("").unwrap().as_ptr(),
                     ))
                 }
+                Inst::aload => {
+                    let index = code[pc + 1] as usize;
+                    let var = self.declare_local_var(index, &VariableType::Pointer);
+                    stack.push(LLVMBuildLoad(
+                        self.builder,
+                        var,
+                        CString::new("").unwrap().as_ptr(),
+                    ))
+                }
                 Inst::aload_0 | Inst::aload_1 | Inst::aload_2 | Inst::aload_3 => {
                     let index = (cur_code - Inst::aload_0) as usize;
                     let var = self.declare_local_var(index, &VariableType::Pointer);

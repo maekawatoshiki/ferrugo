@@ -130,7 +130,7 @@ class Hello {
     eng.show();
     
     for (int i = 1; i < 500000; i++) {
-      if (is_prime(i)) System.out.println(i);
+      if (is_prime(i)) System.out.println(i + " is prime");
     }
     
     int arr[] = new int[8];

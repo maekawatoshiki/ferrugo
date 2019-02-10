@@ -165,6 +165,9 @@ pub extern "C" fn java_lang_stringbuilder_append_i_stringbuilder(
     let string_builder = unsafe { &mut *obj };
     unsafe {
         let string = &mut string_builder.variables[0];
+        if *string == 0 {
+            *string = (&mut *renv.objectheap).create_string_object("".to_string(), renv.classheap)
+        }
         let mut string2 = (&mut *(*string as GcType<ObjectBody>))
             .get_string_mut()
             .clone();
@@ -185,6 +188,9 @@ pub extern "C" fn java_lang_stringbuilder_append_string_stringbuilder(
     let append_str = unsafe { (&mut *s).get_string_mut() };
     unsafe {
         let string = &mut string_builder.variables[0];
+        if *string == 0 {
+            *string = (&mut *renv.objectheap).create_string_object("".to_string(), renv.classheap)
+        }
         let mut string2 = (&mut *(*string as GcType<ObjectBody>))
             .get_string_mut()
             .clone();
